@@ -1,0 +1,17 @@
+{
+  "name": "Research Prompt Generator",
+  "short_name": "Research Prompts",
+  "description": "A static prompt generator for AI-assisted academic research workflows.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#172033",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
