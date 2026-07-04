@@ -25,22 +25,16 @@ Open `index.html` in a browser.
 
 ## Publish With GitHub Pages
 
-1. Create a public GitHub repository.
-2. Upload these files to the repository root:
-   - `index.html`
-   - `styles.css`
-   - `app.js`
-   - `favicon.svg`
-   - `site.webmanifest`
-   - `.nojekyll`
-   - `README.md`
-   - `LICENSE`
-3. In GitHub, open `Settings` > `Pages`.
-4. Under `Build and deployment`, choose:
+1. In GitHub, open `Settings` > `Pages`.
+2. Under `Build and deployment`, choose:
    - Source: `Deploy from a branch`
    - Branch: `main`
    - Folder: `/root`
-5. Save. GitHub will provide a public URL after deployment.
+3. Save. GitHub will provide a public URL after deployment.
+
+The expected public URL for this repository is:
+
+`https://panjaratsow.github.io/research-prompt-generator/`
 
 ## Publish With Netlify
 
