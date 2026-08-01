@@ -23,7 +23,7 @@ function option(value, label, selected) {
 function fieldControl(id, state, required, locale) {
   const wide = ["topic", "problemStatement", "researchQuestion", "existingInformation", "resourcesTimeline", "eligibilityCriteria", "informationSources"].includes(id);
   const label = element("label", { className: `field-control${wide ? " wide" : ""}`, dataset: { fieldId: id } });
-  const text = element("span", { textContent: t(locale, `fields.${id}`) });
+  const text = element("span", { textContent: id === "population" && locale === "en" ? "Population and setting" : t(locale, `fields.${id}`) });
   if (required) text.append(element("span", { className: "required-marker", textContent: " *" }));
   const control = element(wide ? "textarea" : "input", { id: `field-${id}`, name: id, value: state.fields[id] ?? "", dataset: { fieldId: id }, required });
   if (wide) control.rows = 3;
@@ -93,6 +93,7 @@ export function renderWorkspace(root, state, preflight) {
   const form = element("form", { className: "adaptive-form", noValidate: true });
   fieldIds.forEach(id => form.append(fieldControl(id, state, required.has(id), locale)));
   const validationSummary = element("section", { className: "validation-summary", "aria-label": t(locale, "validationHeading"), dataset: { testid: "validation-summary" } });
+  const generate = element("button", { type: "button", className: "primary-button", dataset: { action: "generate-prompt" }, textContent: t(locale, "actions.generate") });
   root.querySelector("#workspaceMain").replaceChildren(
     element("div", { className: "form-heading" }, [element("div", {}, [
       element("div", { className: "panel-kicker", textContent: t(locale, `stages.${state.stageId}`) }),
@@ -101,7 +102,8 @@ export function renderWorkspace(root, state, preflight) {
     ])]),
     ...(state.evidenceMode === "uploaded" ? [element("div", { id: "evidenceWorkspaceRoot" })] : []),
     form,
-    validationSummary
+    validationSummary,
+    element("div", { className: "button-row prompt-action-row" }, [generate])
   );
   renderValidation(root, preflight, locale);
   if (state.evidenceMode === "uploaded") renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state);
@@ -112,17 +114,18 @@ export function renderWorkspace(root, state, preflight) {
     element("section", { className: "summary-section" }, [element("h2", { textContent: t(locale, "standards") }), element("ul", { className: "summary-list" }, typeStandards.map(standard => element("li", { textContent: standard.version }, [element("small", { textContent: standard.name })]))) ]),
     element("section", { className: "summary-section" }, [element("h2", { textContent: t(locale, "stageMatch") }), applicable.length ? element("ul", { className: "summary-list" }, applicable.map(standard => element("li", { textContent: standard.version }))) : element("p", { className: "empty-note", textContent: t(locale, "noStageStandard") })])
   );
-  root.querySelector("#promptDrawerRoot").replaceChildren(element("div", { className: "drawer-placeholder", textContent: t(locale, "promptPlaceholder") }));
+  if (state.promptDrawer !== "open") root.querySelector("#promptDrawerRoot").replaceChildren(element("div", { className: "drawer-placeholder", textContent: t(locale, "promptPlaceholder") }));
 }
 
-export function renderConfirmation(root, labels, locale) {
+export function renderConfirmation(root, labels, locale, kind = "transition") {
   const dialogRoot = root.querySelector("#dialogRoot");
   const cancel = element("button", { type: "button", className: "secondary-button", dataset: { action: "cancel-confirmation" }, textContent: t(locale, "cancel") });
-  const clearingEvidence = labels.length === 0;
-  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : t(locale, "confirm") });
+  const clearingEvidence = labels.length === 0 && kind === "evidence-mode";
+  const resetting = kind === "reset";
+  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : resetting ? t(locale, "resetConfirm") : t(locale, "confirm") });
   dialogRoot.replaceChildren(element("div", { className: "dialog-backdrop" }, [element("section", { className: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirmTitle" }, [
-    element("h2", { id: "confirmTitle", textContent: clearingEvidence ? t(locale, "evidence.clearTitle") : t(locale, "confirmTitle") }),
-    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : t(locale, "confirmText") }),
+    element("h2", { id: "confirmTitle", textContent: clearingEvidence ? t(locale, "evidence.clearTitle") : resetting ? t(locale, "resetConfirmTitle") : t(locale, "confirmTitle") }),
+    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : resetting ? t(locale, "resetConfirmText") : t(locale, "confirmText") }),
     ...(labels.length ? [element("ul", {}, labels.map(label => element("li", { textContent: label })))] : []),
     element("div", { className: "dialog-actions" }, [cancel, confirm]),
   ])]));

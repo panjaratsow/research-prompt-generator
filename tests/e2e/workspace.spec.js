@@ -70,6 +70,22 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
+test("generates, copies, downloads, and closes the prompt drawer", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
+  await page.getByLabel("Population and setting").fill("Women giving birth in Thai referral hospitals");
+  await page.getByLabel("Research question *", { exact: true }).fill("Which modifiable factors predict severe postpartum haemorrhage?");
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
+  await expect(page.getByTestId("prompt-output")).toContainText("CITATION AND TRACEABILITY");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download prompt" }).click();
+  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-question-/);
+  await page.getByRole("button", { name: "Close prompt" }).click();
+  await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
+});
+
 test("keeps the workspace regions visible without horizontal page overflow on mobile", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("setup-bar")).toBeVisible();
@@ -94,7 +110,7 @@ test("updates question readiness while the final required field remains focused"
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel(/research topic/i).fill("Postpartum care");
-  await page.getByLabel(/study population/i).fill("Adults in Bangkok");
+  await page.getByLabel(/population and setting/i).fill("Adults in Bangkok");
   const question = page.locator('[data-field-id="researchQuestion"] textarea');
   await question.focus();
   await question.pressSequentially("Which factors improve care?");

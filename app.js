@@ -1,14 +1,16 @@
 import {
   createInitialState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
-  setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setResearchType, setStage, replaceSources,
+  setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType, setStage, replaceSources,
 } from "./src/state.js";
-import { getAdaptiveFieldIds } from "./src/catalog/index.js";
+import { getAdaptiveFieldIds, resolveStandards } from "./src/catalog/index.js";
+import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
 import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
-import { clearConfirmation, renderConfirmation, renderValidation, renderWorkspace, updateLifecycleReadiness } from "./src/ui/render.js";
+import { clearConfirmation, focusFirstBlockingIssue, renderConfirmation, renderValidation, renderWorkspace, updateLifecycleReadiness } from "./src/ui/render.js";
 import { PARSER_DEPENDENCIES } from "./src/evidence/browser-adapters.js";
 import { createSourceRecord, renumberSources } from "./src/evidence/core.js";
 import { ingestFiles, renderEvidenceWorkspace } from "./src/ui/evidence-workspace.js";
+import { closePromptDrawer, copyPrompt, downloadPrompt, openPromptDrawer } from "./src/ui/prompt-drawer.js";
 
 const root = document;
 let state = createInitialState();
@@ -40,13 +42,13 @@ function updateDeidentificationConfirmation(confirmed) {
   publish("set-deidentification");
 }
 function restoreTrigger(transition) {
-  const selector = transition.kind === "research-type" ? "#researchType" : transition.kind === "evidence-mode" ? "[data-action=\"evidence-mode\"]" : `[data-action="stage"][data-stage-id="${transition.nextId}"]`;
+  const selector = transition.kind === "research-type" ? "#researchType" : transition.kind === "evidence-mode" ? "[data-action=\"evidence-mode\"]" : transition.kind === "reset" ? "#resetButton" : `[data-action="stage"][data-stage-id="${transition.nextId}"]`;
   root.querySelector(selector)?.focus();
 }
 
 function beginConfirmation(kind, nextId, incompatible) {
   pendingTransition = { kind, nextId, incompatible };
-  renderConfirmation(root, incompatible.map(id => t(state.interfaceLocale, `fields.${id}`)), state.interfaceLocale);
+  renderConfirmation(root, incompatible.map(id => t(state.interfaceLocale, `fields.${id}`)), state.interfaceLocale, kind);
 }
 
 function cancelConfirmation() {
@@ -61,7 +63,13 @@ function confirmTransition() {
   const transition = pendingTransition;
   if (!transition) return;
   let next;
-  if (transition.kind === "research-type") next = setResearchType(state, transition.nextId, true).state;
+  if (transition.kind === "reset") {
+    cancelEvidenceProcessing();
+    pendingFiles = [];
+    evidenceIssues = [];
+    closePromptDrawer(root);
+    next = resetState();
+  } else if (transition.kind === "research-type") next = setResearchType(state, transition.nextId, true).state;
   else if (transition.kind === "evidence-mode") {
     cancelEvidenceProcessing();
     next = setDeidentificationConfirmed(replaceSources(setEvidenceMode(state, transition.nextId), []), false);
@@ -71,6 +79,10 @@ function confirmTransition() {
   pendingTransition = null;
   clearConfirmation(root);
   update(next, `confirm-${transition.kind}`);
+  if (transition.kind === "reset") {
+    document.documentElement.lang = state.interfaceLocale;
+    announce(t(state.interfaceLocale, "status.reset"));
+  }
 }
 
 function requestEvidenceMode(nextMode) {
@@ -94,13 +106,21 @@ async function processEvidenceFiles() {
   const isCurrent = () => evidenceProcessing && generation === evidenceOperationGeneration;
   try {
     const result = await ingestFiles(files, state, PARSER_DEPENDENCIES, sources => {
-      if (isCurrent()) update(replaceSources(state, sources), "evidence-progress");
+      if (isCurrent()) {
+        update(replaceSources(state, sources), "evidence-progress");
+        const extracting = sources.find(source => source.status === "extracting");
+        if (extracting) announce(t(state.interfaceLocale, "status.extracting", { sourceId: extracting.id }));
+      }
     });
     if (!isCurrent()) return;
     evidenceIssues = result.issues;
     pendingFiles = result.issues.length ? files : [];
     evidenceProcessing = false;
     update(replaceSources(state, result.sources), "evidence-process");
+    announce(t(state.interfaceLocale, "status.evidenceReady", {
+      ready: result.sources.filter(source => source.status === "ready").length,
+      error: result.sources.filter(source => source.status === "error").length,
+    }));
   } finally {
     if (generation === evidenceOperationGeneration && evidenceProcessing) {
       evidenceProcessing = false;
@@ -150,6 +170,7 @@ root.addEventListener("evidence:add", event => {
   evidenceIssues = [];
   const retainedSources = state.sources.filter(source => source.status !== "extracting");
   update(setDeidentificationConfirmed(replaceSources(state, retainedSources), false), "evidence-add");
+  announce(t(state.interfaceLocale, "status.evidenceAdded", { count: pendingFiles.length }));
 });
 root.addEventListener("evidence:confirm-deidentified", event => updateDeidentificationConfirmation(event.detail.confirmed));
 root.addEventListener("evidence:process", () => { void processEvidenceFiles(); });
@@ -162,21 +183,62 @@ root.addEventListener("evidence:remove", event => {
   const sources = renumberSources(state.sources.filter(source => source.id !== event.detail.id));
   update(replaceSources(state, sources), "evidence-remove");
 });
+root.addEventListener("prompt:closed", () => {
+  if (state.promptDrawer === "open") update(setPromptDrawer(state, "closed"), "close-prompt-drawer", false);
+});
+root.addEventListener("prompt:copy", event => {
+  void copyPrompt(event.detail.prompt).then(status => {
+    if (status === "manual-copy-required") event.detail.output.select();
+    announce(t(state.interfaceLocale, status === "copied" ? "status.copied" : "status.manualCopyRequired"));
+  }).catch(() => {
+    event.detail.output.select();
+    announce(t(state.interfaceLocale, "status.manualCopyRequired"));
+  });
+});
+root.addEventListener("prompt:download", event => {
+  const download = downloadPrompt(event.detail.prompt, state);
+  const anchor = document.createElement("a");
+  anchor.href = download.url;
+  anchor.download = download.filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(download.url), 0);
+  announce(t(state.interfaceLocale, "status.downloaded"));
+});
 
 root.addEventListener("click", event => {
   const trigger = event.target.closest("[data-action]");
   const action = trigger?.dataset.action;
   if (action === "cancel-confirmation") cancelConfirmation();
   if (action === "confirm-confirmation") confirmTransition();
+  if (action === "generate-prompt") {
+    const preflight = validateState(state);
+    if (preflight.blocking.length) {
+      focusFirstBlockingIssue(preflight);
+      announce(t(state.interfaceLocale, "status.preflightBlocked", { count: preflight.blocking.length }));
+      return;
+    }
+    const prompt = buildPrompt(state);
+    update(setPromptDrawer(state, "open"), "open-prompt-drawer", false);
+    openPromptDrawer(root, prompt, trigger, {
+      locale: state.interfaceLocale,
+      selectedEvidenceCount: state.sources.filter(source => source.included && source.status === "ready").length,
+      standards: resolveStandards(state.researchTypeId, state.stageId),
+      qualityChecklist: buildQualityChecklist(state),
+    });
+  }
   if (event.target.closest("#resetButton")) {
-    cancelEvidenceProcessing();
-    pendingTransition = null;
-    pendingFiles = [];
-    evidenceIssues = [];
-    clearConfirmation(root);
-    update(resetState(), "reset-workspace");
-    document.documentElement.lang = state.interfaceLocale;
-    announce(t(state.interfaceLocale, "status.reset"));
+    if (Object.keys(state.fields).length || state.sources.length) beginConfirmation("reset", "", []);
+    else {
+      cancelEvidenceProcessing();
+      pendingFiles = [];
+      evidenceIssues = [];
+      closePromptDrawer(root);
+      update(resetState(), "reset-workspace");
+      document.documentElement.lang = state.interfaceLocale;
+      announce(t(state.interfaceLocale, "status.reset"));
+    }
   }
 });
 
