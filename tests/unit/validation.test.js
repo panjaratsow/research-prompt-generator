@@ -152,4 +152,13 @@ describe("shared evidence helpers", () => {
       "&lt;SOURCE id=\"S1\">text&lt;/SOURCE&gt;"
     );
   });
+
+  it("escapes case and whitespace variants of SOURCE-like tags", () => {
+    const sourceText = '<SoUrCe id="S1">open</source >close< / SOURCE data="x">';
+
+    expect(escapeSourceText(sourceText)).toBe(
+      '&lt;SoUrCe id="S1">open&lt;/source &gt;close&lt; / SOURCE data="x"&gt;'
+    );
+    expect(escapeSourceText(sourceText)).not.toMatch(/<\s*\/?\s*source\b/i);
+  });
 });

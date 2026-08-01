@@ -39,3 +39,42 @@ Result: passed with 4 suites and 29 tests.
 ## Concerns
 
 None for Task 4. Citation style is honored from optional `state.citationStyle` and defaults explicitly to Vancouver until a later state/UI task persists the user selection.
+
+## Review Fix Round 1
+
+### RED
+
+Command:
+
+```powershell
+npm test -- tests/unit/prompt-engine.test.js tests/unit/validation.test.js
+```
+
+Result: failed with two expected regressions: a malicious source ID was interpolated into the SOURCE opening tag, and case/whitespace SOURCE delimiter variants were not escaped. The focused run had 2 failed and 16 passed tests.
+
+### GREEN
+
+Command:
+
+```powershell
+npm test -- tests/unit/prompt-engine.test.js tests/unit/validation.test.js
+```
+
+Result: passed with 2 suites and 18 tests after sharing XML-attribute escaping for source IDs and filenames and hardening delimiter escaping for case/whitespace variants.
+
+### Full Verification
+
+Command:
+
+```powershell
+npm test
+```
+
+Result: passed with 4 suites and 30 tests.
+
+### Fixes
+
+- Escaped source IDs and filenames through the same XML-attribute helper.
+- Escaped SOURCE-like opening and closing tags case-insensitively, including whitespace variants, while preserving the established closing-delimiter encoding.
+- Captured `PreflightError.issues` in tests to assert the metadata-only `selected-source-empty` contract and exclude source/user content from serialization.
+- Added an anchored exact twelve-heading count assertion.

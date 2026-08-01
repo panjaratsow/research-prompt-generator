@@ -63,8 +63,8 @@ function section(heading, content) {
   return `${heading}\n${content}`;
 }
 
-function escapeFilename(filename = "") {
-  return String(filename)
+function escapeAttribute(value = "") {
+  return String(value)
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
@@ -135,7 +135,7 @@ export function buildEvidenceBlock(sources = []) {
   if (!included.length) return "No uploaded source material is available for this prompt.";
 
   return included.map(source => [
-    `<SOURCE id="${source.id}" filename="${escapeFilename(source.filename)}">`,
+    `<SOURCE id="${escapeAttribute(source.id)}" filename="${escapeAttribute(source.filename)}">`,
     escapeSourceText(typeof source.text === "string" ? source.text : ""),
     "</SOURCE>",
   ].join("\n")).join("\n\n");

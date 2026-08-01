@@ -15,5 +15,8 @@ export function calculateEvidenceBudget(sources, budgetChars) {
 }
 
 export function escapeSourceText(text) {
-  return text.replaceAll("<SOURCE", "&lt;SOURCE").replaceAll("</SOURCE>", "&lt;/SOURCE&gt;");
+  return text.replace(/<\s*\/?\s*source\b[^>]*>/gi, tag => {
+    if (/^<\s*\//.test(tag)) return `&lt;${tag.slice(1, -1)}&gt;`;
+    return `&lt;${tag.slice(1)}`;
+  });
 }
