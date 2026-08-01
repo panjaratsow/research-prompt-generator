@@ -1,6 +1,7 @@
 import { t } from "../i18n.js";
 
 const drawerEntries = new WeakMap();
+const FOCUSABLE_SELECTOR = "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
 function element(tag, options = {}, children = []) {
   const node = document.createElement(tag);
@@ -17,6 +18,33 @@ function element(tag, options = {}, children = []) {
 
 function createIconButton(action, label, icon) {
   return element("button", { type: "button", className: "icon-button", dataset: { action }, "aria-label": label, title: label }, [element("img", { src: `vendor/icons/${icon}`, alt: "" })]);
+}
+
+function fallbackBackground(root, container) {
+  return [...root.body.children]
+    .filter(node => node !== container && node.id !== "appStatus" && node.tagName !== "SCRIPT")
+    .map(node => ({
+      node,
+      inert: Boolean(node.inert),
+      ariaHidden: node.getAttribute("aria-hidden"),
+    }));
+}
+
+function setFallbackModalState(root, container) {
+  const background = fallbackBackground(root, container);
+  background.forEach(({ node }) => {
+    node.inert = true;
+    node.setAttribute("aria-hidden", "true");
+  });
+  return () => background.forEach(({ node, inert, ariaHidden }) => {
+    node.inert = inert;
+    if (ariaHidden == null) node.removeAttribute("aria-hidden");
+    else node.setAttribute("aria-hidden", ariaHidden);
+  });
+}
+
+function focusableControls(dialog) {
+  return [...dialog.querySelectorAll(FOCUSABLE_SELECTOR)].filter(control => !control.hidden && control.getClientRects().length);
 }
 
 function drawerContent(prompt, locale, metadata) {
@@ -58,6 +86,8 @@ export function closePromptDrawer(root) {
   const entry = drawerEntries.get(root);
   if (!entry) return;
   drawerEntries.delete(root);
+  entry.removeKeydown?.();
+  entry.restoreBackground?.();
   if (entry.native && entry.dialog.open) entry.dialog.close();
   entry.container.replaceChildren();
   root.dispatchEvent(new CustomEvent("prompt:closed", { bubbles: true }));
@@ -90,17 +120,31 @@ export function openPromptDrawer(root, prompt, trigger, metadata = {}) {
     : element("section", { className: "prompt-drawer", role: "dialog", "aria-modal": "true", "aria-labelledby": drawer.headingId });
   dialog.append(...drawer.content);
   container.replaceChildren(native ? dialog : element("div", { className: "prompt-drawer-backdrop" }, [dialog]));
-  drawerEntries.set(root, { container, dialog, native, trigger });
+  const restoreBackground = native ? null : setFallbackModalState(root, container);
+  const onKeydown = event => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closePromptDrawer(root);
+      return;
+    }
+    if (native || event.key !== "Tab") return;
+    const controls = focusableControls(dialog);
+    if (!controls.length) return;
+    const index = controls.indexOf(root.activeElement);
+    if (event.shiftKey && index <= 0) {
+      event.preventDefault();
+      controls.at(-1).focus();
+    } else if (!event.shiftKey && (index === -1 || index === controls.length - 1)) {
+      event.preventDefault();
+      controls[0].focus();
+    }
+  };
+  root.addEventListener("keydown", onKeydown, true);
+  drawerEntries.set(root, { container, dialog, native, trigger, restoreBackground, removeKeydown: () => root.removeEventListener("keydown", onKeydown, true) });
   drawer.close.addEventListener("click", () => closePromptDrawer(root));
   drawer.copy.addEventListener("click", () => root.dispatchEvent(new CustomEvent("prompt:copy", { bubbles: true, detail: { prompt, output: drawer.output } })));
   drawer.download.addEventListener("click", () => root.dispatchEvent(new CustomEvent("prompt:download", { bubbles: true, detail: { prompt } })));
   dialog.addEventListener("cancel", event => { event.preventDefault(); closePromptDrawer(root); });
-  dialog.addEventListener("keydown", event => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closePromptDrawer(root);
-    }
-  });
   if (native) dialog.showModal();
   drawer.copy.focus();
   return drawer.output;

@@ -101,3 +101,23 @@ mobile-chromium: 15 passed (12.8s)
 ```
 
 Both projects include `tests/e2e/accessibility.spec.js`; the Axe WCAG 2.0/2.1 A/AA regression passed in each. Generated `test-results` output was removed after the run. The final `git diff --check` passed with no findings. The initial environment concern is resolved.
+
+## Review Fix Round 1 (2026-08-02)
+
+RED command:
+
+```powershell
+& $node node_modules/@playwright/test/cli.js test --project=desktop-chromium --workers=1 --grep 'forced fallback|short mobile'
+```
+
+Result: 2 failed as expected: fallback `main.inert` was `false`, and the drawer exceeded a 360px viewport.
+
+GREEN commands:
+
+```powershell
+& $node node_modules/vitest/vitest.mjs run
+& $node node_modules/@playwright/test/cli.js test --project=desktop-chromium --workers=1
+& $node node_modules/@playwright/test/cli.js test --project=mobile-chromium --workers=1
+```
+
+Results: unit 9 files / 62 tests passed; desktop 19/19 passed; mobile 19/19 passed. Both browser projects ran Axe over the initial page and generated drawer states with WCAG A/AA tags. `git diff --check` passed and `test-results` was removed.

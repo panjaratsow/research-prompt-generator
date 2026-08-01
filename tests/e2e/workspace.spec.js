@@ -60,6 +60,19 @@ async function imageOnlyPdf() {
   return Buffer.from(await document.save());
 }
 
+async function completePromptFields(page) {
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
+  await page.getByLabel("Population and setting").fill("Women giving birth in Thai referral hospitals");
+  await page.getByLabel("Research question *", { exact: true }).fill("Which modifiable factors predict severe postpartum haemorrhage?");
+}
+
+async function openPromptDrawer(page) {
+  await completePromptFields(page);
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
+}
+
 test("renders the approved hybrid workspace", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
@@ -70,20 +83,85 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
-test("generates, copies, downloads, and closes the prompt drawer", async ({ page }) => {
+test("copies, downloads, revokes the URL, and restores focus after Escape", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.revokedPromptUrls = [];
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = url => {
+      window.revokedPromptUrls.push(url);
+      revoke(url);
+    };
+  });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" });
+  await page.goto("/");
+  await openPromptDrawer(page);
+  await expect(page.getByTestId("prompt-output")).toContainText("CITATION AND TRACEABILITY");
+  await page.getByRole("button", { name: "Copy prompt" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("Prompt copied.");
+  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("CITATION AND TRACEABILITY");
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download prompt" }).click();
+  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-question-/);
+  await expect.poll(() => page.evaluate(() => window.revokedPromptUrls.length)).toBe(1);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
+});
+
+test("selects prompt text and announces manual copying when clipboard writing fails", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "clipboard", {
+      configurable: true,
+      get: () => ({ writeText: async () => { throw new Error("clipboard denied"); } }),
+    });
+  });
+  await page.goto("/");
+  await openPromptDrawer(page);
+  await page.getByRole("button", { name: "Copy prompt" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("Automatic copying is unavailable. The prompt text has been selected.");
+  expect(await page.getByTestId("prompt-output").evaluate(output => output.selectionStart === 0 && output.selectionEnd === output.value.length)).toBe(true);
+});
+
+test("keeps a forced fallback dialog keyboard-modal and restores background interaction", async ({ page }) => {
+  await page.addInitScript(() => { HTMLDialogElement.prototype.showModal = undefined; });
+  await page.goto("/");
+  await openPromptDrawer(page);
+  await expect(page.locator("main")).toHaveJSProperty("inert", true);
+  await expect(page.getByRole("button", { name: "Copy prompt" })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("prompt-output")).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Copy prompt" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator("main")).toHaveJSProperty("inert", false);
+  await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
+});
+
+test("keeps the prompt drawer scroll-accessible without page overflow at a short mobile height", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 360 });
+  await page.goto("/");
+  await openPromptDrawer(page);
+  const drawerMetrics = await page.getByRole("dialog").evaluate(drawer => ({
+    fitsViewport: drawer.getBoundingClientRect().height <= window.innerHeight,
+    scrollable: drawer.scrollHeight > drawer.clientHeight,
+  }));
+  expect(drawerMetrics).toEqual({ fitsViewport: true, scrollable: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("confirms reset and keeps prompt output language independent from interface language", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Output language").selectOption("thai");
   await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
   await page.getByLabel("Population and setting").fill("Women giving birth in Thai referral hospitals");
   await page.getByLabel("Research question *", { exact: true }).fill("Which modifiable factors predict severe postpartum haemorrhage?");
   await page.getByRole("button", { name: "Generate prompt" }).click();
-  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
-  await expect(page.getByTestId("prompt-output")).toContainText("CITATION AND TRACEABILITY");
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Download prompt" }).click();
-  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-question-/);
-  await page.getByRole("button", { name: "Close prompt" }).click();
-  await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
+  await expect(page.getByTestId("prompt-output")).toContainText("Output language: Thai");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Start a new workspace" }).click();
+  await expect(page.getByRole("dialog", { name: "Start a new workspace?" })).toBeVisible();
+  await page.getByRole("button", { name: "Start new workspace" }).click();
+  await expect(page.getByLabel(/หัวข้อวิจัย/i)).toHaveValue("");
 });
 
 test("keeps the workspace regions visible without horizontal page overflow on mobile", async ({ page }) => {
@@ -186,6 +264,7 @@ test("requires deidentification confirmation and parses uploaded evidence", asyn
   await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toContainText("searchable-evidence.pdf");
   await expect(page.getByTestId("source-S1")).toContainText("Ready");
+  await expect(page.locator("#appStatus")).toHaveText("Evidence processing finished: 1 ready sources, 0 sources with issues.");
 });
 
 test("clearing uploaded mode during parsing cannot restore stale evidence", async ({ page }) => {
@@ -200,6 +279,7 @@ test("clearing uploaded mode during parsing cannot restore stale evidence", asyn
   await confirmDeidentified(page, "I confirm these files are deidentified");
   await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toContainText("Extracting text");
+  await expect(page.locator("#appStatus")).toHaveText("Extracting text from S1.");
 
   await page.getByLabel("Evidence mode").selectOption("planning");
   await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
