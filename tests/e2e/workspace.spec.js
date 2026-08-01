@@ -30,6 +30,21 @@ test("keeps field focus and complete text while typing", async ({ page }) => {
   expect(await topic.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
 });
 
+test("updates question readiness while the final required field remains focused", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel(/research topic/i).fill("Postpartum care");
+  await page.getByLabel(/study population/i).fill("Adults in Bangkok");
+  const question = page.locator('[data-field-id="researchQuestion"] textarea');
+  await question.focus();
+  await question.pressSequentially("Which factors improve care?");
+  const questionStage = page.locator('[data-action="stage"][data-stage-id="question"]');
+  await expect(questionStage).toHaveAttribute("aria-label", /Research question: ready/i);
+  await expect(question).toHaveValue("Which factors improve care?");
+  await expect(question).toBeFocused();
+  expect(await question.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
+});
+
 test("confirms incompatible stage changes and supports modal keyboard controls", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", error => pageErrors.push(error.message));
@@ -59,7 +74,10 @@ test("confirms incompatible stage changes and supports modal keyboard controls",
   await expect(page.getByLabel(/problem statement/i)).toHaveValue("Delayed diagnosis");
   await expect(evidenceStage).toBeFocused();
   await evidenceStage.click();
-  await page.getByRole("button", { name: "Confirm change" }).click();
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Confirm change" })).toBeFocused();
+  await page.keyboard.press("Enter");
   await expect(evidenceStage).toHaveAttribute("aria-current", "step");
   await expect(page.getByLabel(/problem statement/i)).toHaveCount(0);
 });

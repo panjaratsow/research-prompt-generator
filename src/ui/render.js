@@ -51,6 +51,17 @@ export function renderValidation(root, preflight, locale) {
   );
 }
 
+export function updateLifecycleReadiness(root, preflight, locale) {
+  root.querySelectorAll("[data-action='stage']").forEach(button => {
+    const readiness = preflight.readinessByStage[button.dataset.stageId] ?? "incomplete";
+    const statusKey = `stage${readiness[0].toUpperCase()}${readiness.slice(1)}`;
+    const stageLabel = t(locale, `stages.${button.dataset.stageId}`);
+    button.querySelector(".stage-dot").className = `stage-dot ${readiness}`;
+    button.querySelector("[data-stage-status]").textContent = t(locale, statusKey);
+    button.setAttribute("aria-label", `${stageLabel}: ${t(locale, statusKey)}`);
+  });
+}
+
 export function renderWorkspace(root, state, preflight) {
   const locale = state.interfaceLocale;
   root.querySelectorAll("[data-i18n]").forEach(node => { node.textContent = t(locale, node.dataset.i18n); });
@@ -76,8 +87,9 @@ export function renderWorkspace(root, state, preflight) {
       className: `stage-button${stage.id === state.stageId ? " active" : ""}`,
       dataset: { action: "stage", stageId: stage.id },
       "aria-current": stage.id === state.stageId ? "step" : null,
-    }, [element("span", { className: `stage-dot ${preflight.readinessByStage[stage.id]}` }), element("span", { className: "stage-label", textContent: t(locale, `stages.${stage.id}`) })]))
+    }, [element("span", { className: `stage-dot ${preflight.readinessByStage[stage.id]}` }), element("span", { className: "stage-label", textContent: t(locale, `stages.${stage.id}`) }), element("span", { className: "sr-only", dataset: { stageStatus: "" } })]))
   );
+  updateLifecycleReadiness(root, preflight, locale);
 
   const fieldIds = getAdaptiveFieldIds(state.researchTypeId, state.stageId);
   const required = new Set(getRequiredFieldIds(state.researchTypeId, state.stageId));

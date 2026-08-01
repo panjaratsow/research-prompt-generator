@@ -5,7 +5,7 @@ import {
 import { getAdaptiveFieldIds } from "./src/catalog/index.js";
 import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
-import { clearConfirmation, renderConfirmation, renderValidation, renderWorkspace } from "./src/ui/render.js";
+import { clearConfirmation, renderConfirmation, renderValidation, renderWorkspace, updateLifecycleReadiness } from "./src/ui/render.js";
 
 const root = document;
 let state = createInitialState();
@@ -50,7 +50,9 @@ root.addEventListener("input", event => {
   const fieldId = event.target.dataset.fieldId;
   if (fieldId) {
     update(setField(state, fieldId, event.target.value), "set-field", false);
-    renderValidation(root, validateState(state), state.interfaceLocale);
+    const preflight = validateState(state);
+    renderValidation(root, preflight, state.interfaceLocale);
+    updateLifecycleReadiness(root, preflight, state.interfaceLocale);
   }
 });
 
