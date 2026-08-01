@@ -25,6 +25,14 @@ function render() {
 }
 function publish(action) { window.dispatchEvent(new CustomEvent("workspace:statechange", { detail: { action, state: structuredClone(state) } })); }
 function update(next, action, shouldRender = true) { state = next; if (shouldRender) render(); publish(action); }
+function updateDeidentificationConfirmation(confirmed) {
+  state = setDeidentificationConfirmed(state, confirmed);
+  const preflight = validateState(state);
+  renderValidation(root, preflight, state.interfaceLocale);
+  updateLifecycleReadiness(root, preflight, state.interfaceLocale);
+  root.querySelector("[data-action='evidence-process']").disabled = !state.deidentificationConfirmed;
+  publish("set-deidentification");
+}
 function restoreTrigger(transition) {
   const selector = transition.kind === "research-type" ? "#researchType" : transition.kind === "evidence-mode" ? "[data-action=\"evidence-mode\"]" : `[data-action="stage"][data-stage-id="${transition.nextId}"]`;
   root.querySelector(selector)?.focus();
@@ -116,7 +124,7 @@ root.addEventListener("evidence:add", event => {
   evidenceIssues = [];
   render();
 });
-root.addEventListener("evidence:confirm-deidentified", event => update(setDeidentificationConfirmed(state, event.detail.confirmed), "set-deidentification"));
+root.addEventListener("evidence:confirm-deidentified", event => updateDeidentificationConfirmation(event.detail.confirmed));
 root.addEventListener("evidence:process", () => { void processEvidenceFiles(); });
 root.addEventListener("evidence:set-budget", event => update(setEvidenceBudget(state, event.detail.budget), "set-evidence-budget"));
 root.addEventListener("evidence:toggle", event => {

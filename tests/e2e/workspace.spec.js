@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+async function confirmDeidentified(page, label) {
+  const confirmation = page.getByLabel(label);
+  await confirmation.focus();
+  await page.keyboard.press("Space");
+  await expect(confirmation).toBeChecked();
+  await expect(confirmation).toBeAttached();
+  await expect(confirmation).toBeFocused();
+  await expect(page.locator("[data-action='evidence-process']")).toBeEnabled();
+}
+
+async function processEvidence(page) {
+  const process = page.locator("[data-action='evidence-process']");
+  await expect(process).toBeEnabled();
+  expect(await process.evaluate(button => {
+    const bounds = button.getBoundingClientRect();
+    const target = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    return target === button || button.contains(target);
+  })).toBe(true);
+  await process.focus();
+  await page.keyboard.press("Enter");
+}
+
 test("renders the approved hybrid workspace", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
@@ -90,10 +112,12 @@ test("localizes document language and resolves the uploaded-mode confirmation bl
   await page.getByTestId("interface-language").selectOption("th");
   await expect(page.locator("html")).toHaveAttribute("lang", "th");
   await page.getByLabel(/โหมดหลักฐาน/i).selectOption("uploaded");
-  await expect(page.getByLabel(/ยืนยันการลบข้อมูลระบุตัวตน/i)).toBeVisible();
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await expect(page.getByLabel(/ไฟล์เหล่านี้ลบข้อมูลระบุตัวตนแล้ว/i)).toBeVisible();
   await expect(page.getByTestId("validation-summary")).toContainText("เพิ่มหลักฐานที่พร้อมใช้งาน");
-  await page.getByLabel(/ยืนยันการลบข้อมูลระบุตัวตน/i).check();
+  await confirmDeidentified(page, /ไฟล์เหล่านี้ลบข้อมูลระบุตัวตนแล้ว/i);
   await expect(page.getByTestId("validation-summary")).not.toContainText("ยืนยันว่าลบข้อมูลระบุตัวตนแล้ว");
+  await expect(page.getByTestId("source-S1")).toHaveCount(0);
   await page.getByRole("button", { name: /เริ่มพื้นที่ทำงานใหม่/i }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "th");
 });
@@ -104,8 +128,8 @@ test("requires deidentification confirmation and parses uploaded evidence", asyn
   await page.getByLabel("Evidence mode").selectOption("uploaded");
   await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
   await expect(page.getByTestId("privacy-confirmation")).toBeVisible();
-  await page.getByLabel("I confirm these files are deidentified").check();
-  await page.getByRole("button", { name: "Process files" }).click();
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toContainText("searchable-evidence.pdf");
   await expect(page.getByTestId("source-S1")).toContainText("Ready");
 });
@@ -124,8 +148,8 @@ test("wraps uploaded source rows without mobile overflow", async ({ page }) => {
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Evidence mode").selectOption("uploaded");
   await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
-  await page.getByLabel("I confirm these files are deidentified").check();
-  await page.getByRole("button", { name: "Process files" }).click();
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });

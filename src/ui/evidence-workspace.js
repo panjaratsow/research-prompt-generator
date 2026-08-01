@@ -102,7 +102,7 @@ export function renderEvidenceWorkspace(container, state, { pendingFiles = [], i
       return element("label", { className: "check-control", htmlFor: "evidenceDeidentified" }, [checkbox, document.createTextNode(t(locale, "evidence.confirmLabel"))]);
     })(),
     (() => {
-      const process = element("button", { type: "button", className: "primary-button", disabled: !state.deidentificationConfirmed, textContent: t(locale, "evidence.process") });
+      const process = element("button", { type: "button", className: "primary-button", disabled: !state.deidentificationConfirmed, dataset: { action: "evidence-process" }, textContent: t(locale, "evidence.process") });
       process.addEventListener("click", () => emit(container, "evidence:process"));
       return process;
     })(),
