@@ -128,6 +128,36 @@ describe("preflight validation", () => {
     );
     expect(JSON.stringify(result)).not.toContain("Clinical risk stratification is inconsistent");
   });
+
+  it("blocks selected evidence beyond the configured budget", () => {
+    const state = {
+      ...createInitialState(),
+      evidenceMode: "uploaded",
+      deidentificationConfirmed: true,
+      evidenceBudget: 25000,
+      sources: [{ id: "S1", included: true, status: "ready", text: "x".repeat(25001) }],
+    };
+
+    expect(validateState(state).blocking).toContainEqual(expect.objectContaining({
+      code: "evidence-budget-exceeded",
+    }));
+  });
+
+  it("warns for per-source identifier hints without including document content", () => {
+    const identifier = "patient@example.org";
+    const state = {
+      ...createInitialState(),
+      sources: [{ id: "S1", included: true, status: "ready", text: identifier, identifierHints: ["email"] }],
+    };
+
+    const result = validateState(state);
+
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "source-identifier-hint",
+      sourceId: "S1",
+    }));
+    expect(JSON.stringify(result)).not.toContain(identifier);
+  });
 });
 
 describe("shared evidence helpers", () => {

@@ -121,6 +121,11 @@ export function validateState(state) {
   if (state.identifiableDataPresent || readySources.some(source => source.identifiableDataPresent)) {
     blocking.push(issue("identifiable-data-present", "validation.identifiableDataPresent"));
   }
+  for (const source of state.sources ?? []) {
+    if (Array.isArray(source.identifierHints) && source.identifierHints.length) {
+      warnings.push(issue("source-identifier-hint", "validation.sourceIdentifierHint", { sourceId: source.id }));
+    }
+  }
 
   addContextualWarnings({ ...state, fields }, warnings);
   return { blocking, warnings, readinessByStage: calculateReadiness({ ...state, fields }, blocking) };
