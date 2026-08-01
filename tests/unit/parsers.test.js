@@ -26,6 +26,19 @@ describe("evidence parsers", () => {
     expect(result.text).toContain("Verified evidence source 2026");
   });
 
+  it("warns when PDF text is empty", async () => {
+    const result = await parsePdf(textBytes.buffer, {
+      getDocument: () => ({
+        promise: Promise.resolve({
+          numPages: 1,
+          getPage: async () => ({ getTextContent: async () => ({ items: [] }) }),
+        }),
+      }),
+    });
+
+    expect(result).toEqual({ text: "", warnings: ["image-only-or-empty-pdf"] });
+  });
+
   it("extracts DOCX text", async () => {
     const bytes = await readFile("tests/fixtures/searchable-evidence.docx");
     const result = await parseDocx(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), mammoth);
