@@ -1,1 +1,5 @@
 *.zip
+.worktrees/
+.codex_doc_review/
+.superpowers/
+__pycache__/
