@@ -2,7 +2,7 @@
 
 ## Outcome
 
-`DONE_WITH_CONCERNS`
+`DONE`
 
 Task 10 release content, catalogue/prompt coverage, prefix-routing support, and local verification are complete. Push and live GitHub Pages verification remain intentionally deferred because the brief requires user-approved release integration. The content review is an application-output review, not expert scientific, ethics, privacy, Thai PDPA, local IRB, legal, or standards certification.
 
@@ -30,24 +30,31 @@ Task 10 release content, catalogue/prompt coverage, prefix-routing support, and 
 
 ## Verification Evidence
 
-The Task 9 bundled runtime was used:
+Fix round 1 used the supplied npm package and Node runtime:
 
 ```powershell
-$env:PATH='C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;'+$env:PATH
-$env:NODE_USE_SYSTEM_CA='1'
-$env:npm_config_cache=(Join-Path $PWD '.npm-cache')
+$env:PATH=(Join-Path $PWD '.superpowers\npm-cli\package\bin')+';C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;'+$env:PATH
 $node='C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+function npm { & $node (Join-Path $PWD '.superpowers\npm-cli\package\bin\npm-cli.js') @args }
 ```
+
+PowerShell initially selected the package's blocked `npm.ps1`; the supplied `npm.cmd` also expected a missing installed-shim directory. The session-local `npm` function invokes the package's real `bin/npm-cli.js`, so every command below was run literally as `npm ...` without changing project files.
 
 | Required check | Result |
 | --- | --- |
-| `npm run vendor` | The bundled runtime has no `npm` launcher, so the literal command was unavailable. Its exact underlying locked command, `& $node scripts/vendor-deps.mjs`, passed. |
-| `npm test` | The bundled runtime has no `npm` launcher. Its exact underlying command, `& $node node_modules/vitest/vitest.mjs run`, passed: 9 files, 166 tests. |
-| `npm run test:e2e` | The bundled runtime has no `npm` launcher. With an owned `scripts/serve.mjs --port 4173` process, `& $node node_modules/@playwright/test/cli.js test --workers=1` passed: 40 tests across desktop and mobile Chromium. |
+| `npm --version` | Passed: `11.18.0`. |
+| `npm run vendor` | Passed; ran `node scripts/vendor-deps.mjs`. |
+| `npm test` | Passed: 9 files, 166 tests. |
+| `npm run test:e2e` | Passed: 40 tests across desktop and mobile Chromium in 17.0 seconds using 4 workers. |
+| `npm run serve -- --port 4173` | Ran as owned hidden process PID 26264. Both `http://127.0.0.1:4173/` and `http://127.0.0.1:4173/research-prompt-generator/` returned HTTP 200 and the `Research Prompt Studio` title. |
 | Axe WCAG checks | Passed in page and generated-drawer states for both desktop and mobile projects; no WCAG 2.0/2.1 A/AA violations. |
 | `git diff --check` | Passed with no whitespace errors. Git emitted only LF-to-CRLF working-tree warnings. |
 
-Generated `test-results` output from the intentional RED run was removed.
+## Fix Round 1 Evidence
+
+- The first two bounded hidden E2E attempts did not expose Playwright completion output before Windows managed-web-server teardown. The waits were interrupted; their suspected owned PowerShell PIDs (7080, 29804, 12532, and 29968) had already exited by cleanup, so no PID was stopped in those attempts.
+- The literal `npm run serve -- --port 4173` process was verified before use. After the literal E2E command completed, owned serve root PID 26264 and its remaining port-4173 child PID 29984 were stopped. No other process was targeted. PIDs 23652 and 24968 were explicitly excluded and untouched.
+- Generated `test-results` output was removed after the final literal E2E run.
 
 ## Browser and Content Review
 
