@@ -5,6 +5,7 @@ import {
   resetState,
   setEvidenceBudget,
   setEvidenceMode,
+  setDeidentificationConfirmed,
   setField,
   setInterfaceLocale,
   setOutputLanguage,
@@ -46,6 +47,46 @@ describe("state transitions", () => {
 
     expect(typeTransition.state.fields.population).toBe("Adults in Bangkok");
     expect(stageTransition.fields.population).toBe("Adults in Bangkok");
+  });
+
+  it("does not mutate input state when confirming deidentification", () => {
+    const state = createInitialState();
+    const next = setDeidentificationConfirmed(state, true);
+
+    expect(next).not.toBe(state);
+    expect(next.deidentificationConfirmed).toBe(true);
+    expect(state.deidentificationConfirmed).toBe(false);
+  });
+
+  it("leaves original fields unchanged when setting a field", () => {
+    const state = { ...createInitialState(), fields: { topic: "Original topic" } };
+    const next = setField(state, "researchQuestion", "What is the effect?");
+
+    expect(next).not.toBe(state);
+    expect(next.fields).not.toBe(state.fields);
+    expect(next.fields).toEqual({
+      topic: "Original topic",
+      researchQuestion: "What is the effect?",
+    });
+    expect(state.fields).toEqual({ topic: "Original topic" });
+  });
+
+  it("leaves stage input unchanged while filtering incompatible fields", () => {
+    const state = {
+      ...createInitialState(),
+      fields: { population: "Thai adults", problemStatement: "Delayed diagnosis" },
+    };
+    const next = setStage(state, "evidence");
+
+    expect(next).not.toBe(state);
+    expect(next.fields).not.toBe(state.fields);
+    expect(next.stageId).toBe("evidence");
+    expect(next.fields).toEqual({ population: "Thai adults" });
+    expect(state.stageId).toBe("question");
+    expect(state.fields).toEqual({
+      population: "Thai adults",
+      problemStatement: "Delayed diagnosis",
+    });
   });
 
   it("rejects unknown enum values", () => {
