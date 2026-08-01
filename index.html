@@ -3,135 +3,32 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Research Prompt Generator</title>
-  <meta name="description" content="A static prompt generator for AI-assisted academic research workflows.">
-  <meta name="theme-color" content="#172033">
-  <meta property="og:title" content="Research Prompt Generator">
-  <meta property="og:description" content="Generate structured prompts for research gaps, literature review, synthesis, hypotheses, methodology, and proposal writing.">
-  <meta property="og:type" content="website">
-  <meta name="twitter:card" content="summary">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <title>Research Prompt Studio</title>
+  <meta name="description" content="A privacy-first workspace for structured medical research prompts.">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="site.webmanifest">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <main class="app-shell">
-    <section class="workspace" aria-label="Research prompt generator">
-      <aside class="sidebar">
-        <div class="brand">
-          <span class="brand-mark">R</span>
-          <div>
-            <h1>Research Prompt Generator</h1>
-            <p>AI for research workflow</p>
-          </div>
-        </div>
-
-        <nav class="step-list" id="stepList" aria-label="Research steps"></nav>
-
-        <div class="ethics-box">
-          <h2>Guardrails</h2>
-          <label><input type="checkbox" id="guardFact" checked> Separate FACT and INFERENCE</label>
-          <label><input type="checkbox" id="guardNoFake" checked> Never fabricate citations or data</label>
-          <label><input type="checkbox" id="guardVerify" checked> Human verification reminder</label>
-        </div>
-      </aside>
-
-      <section class="generator-panel">
-        <header class="panel-header">
-          <div>
-            <p class="eyebrow" id="stepKicker">Step 1</p>
-            <h2 id="stepTitle">Finding Research Idea and Research Gap</h2>
-          </div>
-          <div class="mode-group" role="group" aria-label="Output language">
-            <button class="segmented active" type="button" data-language="bilingual">Thai + English</button>
-            <button class="segmented" type="button" data-language="english">English</button>
-            <button class="segmented" type="button" data-language="thai">Thai</button>
-          </div>
-        </header>
-
-        <form class="form-grid" id="contextForm">
-          <label>
-            Role
-            <select id="role">
-              <option>PhD student</option>
-              <option>Master's student</option>
-              <option>Faculty researcher</option>
-              <option>Clinical researcher</option>
-              <option>Nurse specialist</option>
-            </select>
-          </label>
-          <label>
-            Field
-            <input id="field" placeholder="e.g., pediatric hematology, nursing education">
-          </label>
-          <label class="wide">
-            Research topic
-            <textarea id="topic" rows="2" placeholder="e.g., neonatal iron status in infants of diabetic mothers"></textarea>
-          </label>
-          <label>
-            Context / setting
-            <input id="setting" placeholder="e.g., Thai university hospital">
-          </label>
-          <label>
-            Target output
-            <select id="targetOutput">
-              <option>PhD research proposal</option>
-              <option>Journal manuscript</option>
-              <option>Thesis chapter</option>
-              <option>Nursing promotion document</option>
-              <option>Conference abstract</option>
-            </select>
-          </label>
-          <label>
-            Citation style
-            <select id="citation">
-              <option>Vancouver</option>
-              <option>APA 7th Edition</option>
-              <option>AMA</option>
-              <option>IEEE</option>
-              <option>None</option>
-            </select>
-          </label>
-          <label>
-            AI expertise
-            <select id="expertise">
-              <option>Beginner</option>
-              <option>Intermediate</option>
-              <option>Advanced</option>
-            </select>
-          </label>
-          <label class="wide">
-            Uploaded / available evidence
-            <textarea id="evidence" rows="3" placeholder="Summarize uploaded papers, abstracts, datasets, search results, or write: not yet available"></textarea>
-          </label>
-          <label class="wide">
-            Specific objective or question
-            <textarea id="objective" rows="2" placeholder="Optional working research question, hypothesis, or objective"></textarea>
-          </label>
-        </form>
-
-        <section class="output-section">
-          <div class="output-toolbar">
-            <div>
-              <p class="eyebrow">Generated Prompt</p>
-              <h3 id="outputHeading">Ready for ChatGPT, Claude, Gemini, or Perplexity</h3>
-            </div>
-            <div class="button-row">
-              <button class="icon-button" type="button" id="copyBtn" aria-label="Copy prompt" title="Copy prompt">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              </button>
-              <button class="icon-button" type="button" id="downloadBtn" aria-label="Download prompt" title="Download prompt">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-              </button>
-            </div>
-          </div>
-          <textarea id="promptOutput" spellcheck="false"></textarea>
-          <p class="status" id="statusText" aria-live="polite"></p>
-        </section>
-      </section>
-    </section>
+  <header class="app-header">
+    <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">R</span><h1>Research Prompt Studio</h1></div>
+    <div class="header-actions">
+      <span class="privacy-status" data-i18n="privacyFirst">Privacy-first</span>
+      <label class="language-control"><span data-i18n="interfaceLanguage">Language</span><select id="interfaceLanguage" data-testid="interface-language"><option value="th">ไทย</option><option value="en">English</option></select></label>
+      <button type="button" id="resetButton" class="icon-button" aria-label="Start a new workspace" title="Start a new workspace"><img src="vendor/icons/rotate-ccw.svg" alt=""></button>
+    </div>
+  </header>
+  <main class="workspace-shell">
+    <section id="setupBar" data-testid="setup-bar" aria-label="Workspace setup"></section>
+    <nav id="lifecycleRail" data-testid="lifecycle-rail" aria-label="Research lifecycle"></nav>
+    <section id="workspaceMain" data-testid="adaptive-form" aria-label="Adaptive research form"></section>
+    <aside id="standardsSummary" data-testid="standards-summary" aria-label="Standards summary"></aside>
   </main>
-
-  <script src="app.js"></script>
+  <div id="promptDrawerRoot"></div>
+  <div id="dialogRoot"></div>
+  <div id="appStatus" class="sr-only" aria-live="polite"></div>
+  <script src="vendor/mammoth.browser.min.js" defer></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
