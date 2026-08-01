@@ -22,6 +22,16 @@ const DESIGN_REQUIRED_FIELDS = {
   "ai-health-data": ["intendedUse", "targetPopulation", "datasetProvenance", "referenceStandard", "modelInputs", "validationDataset", "performanceMeasures"],
 };
 
+const GLOBAL_BLOCKING_CODES = new Set([
+  "missing-research-type",
+  "missing-stage",
+  "deidentification-unconfirmed",
+  "uploaded-evidence-empty",
+  "selected-source-empty",
+  "evidence-budget-exceeded",
+  "identifiable-data-present",
+]);
+
 function issue(code, messageKey, { fieldId = "", sourceId = "" } = {}) {
   return { code, fieldId, sourceId, messageKey };
 }
@@ -48,12 +58,13 @@ export function getRequiredFieldIds(typeId, stageId) {
 }
 
 function calculateReadiness(state, blocking) {
-  const globallyBlocked = blocking.some(issue => !issue.fieldId || issue.fieldId === "deidentificationConfirmed");
+  const globallyBlocked = blocking.some(issue => GLOBAL_BLOCKING_CODES.has(issue.code));
 
   return Object.fromEntries(LIFECYCLE_STAGES.map(({ id }) => {
+    if (globallyBlocked) return [id, "blocked"];
     const fieldsReady = getRequiredFieldIds(state.researchTypeId, id)
       .every(fieldId => hasValue(state.fields, fieldId));
-    return [id, fieldsReady && !globallyBlocked ? "ready" : "incomplete"];
+    return [id, fieldsReady ? "ready" : "incomplete"];
   }));
 }
 
@@ -101,7 +112,7 @@ export function validateState(state) {
   if (state.evidenceMode === "uploaded" && !readySources.length) {
     blocking.push(issue("uploaded-evidence-empty", "validation.uploadEvidence"));
   }
-  for (const source of readySources.filter(source => !source.text?.trim())) {
+  for (const source of readySources.filter(source => typeof source.text !== "string" || !source.text.trim())) {
     blocking.push(issue("selected-source-empty", "validation.emptySourceText", { sourceId: source.id }));
   }
   if (state.evidenceMode === "uploaded" && calculateEvidenceBudget(state.sources ?? [], state.evidenceBudget).exceeded) {

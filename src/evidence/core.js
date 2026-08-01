@@ -5,7 +5,7 @@ export function estimateTokens(chars) {
 export function calculateEvidenceBudget(sources, budgetChars) {
   const selectedChars = sources
     .filter(source => source.included && source.status === "ready")
-    .reduce((sum, source) => sum + source.text.length, 0);
+    .reduce((sum, source) => sum + (typeof source.text === "string" ? source.text.length : 0), 0);
 
   return {
     selectedChars,

@@ -40,6 +40,50 @@ describe("preflight validation", () => {
     expect(validateState(state).readinessByStage.question).toBe("ready");
   });
 
+  it("marks every stage blocked for invalid type, stage, and uploaded global blockers", () => {
+    const state = withFields(createInitialState(), {
+      topic: "Postpartum haemorrhage",
+      population: "Women giving birth in Thai referral hospitals",
+      researchQuestion: "Which modifiable factors predict severe postpartum haemorrhage?",
+    });
+    const invalidType = validateState({ ...state, researchTypeId: "unknown" });
+    const invalidStage = validateState({ ...state, stageId: "unknown" });
+    const uploaded = validateState({ ...state, evidenceMode: "uploaded" });
+
+    for (const result of [invalidType, invalidStage, uploaded]) {
+      expect(Object.values(result.readinessByStage)).not.toContain("ready");
+      expect(Object.values(result.readinessByStage)).toContain("blocked");
+    }
+  });
+
+  it("returns a metadata-only issue for a selected ready source without text", () => {
+    const state = withFields(
+      {
+        ...createInitialState(),
+        evidenceMode: "uploaded",
+        deidentificationConfirmed: true,
+        sources: [{ id: "S1", included: true, status: "ready" }],
+      },
+      {
+        topic: "Postpartum haemorrhage",
+        population: "Women giving birth in Thai referral hospitals",
+        researchQuestion: "Which modifiable factors predict severe postpartum haemorrhage?",
+      }
+    );
+
+    const result = validateState(state);
+
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "selected-source-empty",
+      sourceId: "S1",
+    }));
+    expect(calculateEvidenceBudget(state.sources, state.evidenceBudget)).toMatchObject({
+      selectedChars: 0,
+      estimatedTokens: 0,
+      exceeded: false,
+    });
+  });
+
   it("defines required fields for every lifecycle stage", () => {
     expect(getRequiredFieldIds("observational", "question")).toEqual(["topic", "population", "researchQuestion"]);
     expect(getRequiredFieldIds("observational", "evidence")).toContain("informationSources");
