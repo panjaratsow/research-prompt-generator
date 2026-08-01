@@ -17,15 +17,17 @@ const mimeTypes = {
 };
 
 function resolveRequestPath(urlPath) {
-  const decoded = decodeURIComponent(urlPath);
+  let decoded;
+  try { decoded = decodeURIComponent(urlPath); } catch { return undefined; }
   const relative = decoded === "/" ? "index.html" : decoded.replace(/^[/\\]+/, "");
   const path = resolve(root, normalize(relative));
   return path === root || path.startsWith(`${root}${sep}`) ? path : null;
 }
 
 createServer((request, response) => {
-  const url = new URL(request.url, "http://127.0.0.1");
-  const path = resolveRequestPath(url.pathname);
+  let path;
+  try { path = resolveRequestPath(new URL(request.url, "http://127.0.0.1").pathname); } catch { response.writeHead(400).end("Bad request"); return; }
+  if (path === undefined) { response.writeHead(400).end("Bad request"); return; }
   if (!path) {
     response.writeHead(403).end("Forbidden");
     return;
