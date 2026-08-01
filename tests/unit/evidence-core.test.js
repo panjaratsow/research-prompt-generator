@@ -10,6 +10,13 @@ import {
 } from "../../src/evidence/core.js";
 
 describe("evidence core", () => {
+  it("keeps the allowed extension list immutable", () => {
+    const originalExtensions = [...FILE_LIMITS.allowedExtensions];
+
+    expect(() => FILE_LIMITS.allowedExtensions.push("doc")).toThrow(TypeError);
+    expect(FILE_LIMITS.allowedExtensions).toEqual(originalExtensions);
+  });
+
   it("enforces count and byte limits before parsing", () => {
     const files = Array.from({ length: 11 }, (_, index) => ({ name: `p${index}.pdf`, size: 100, type: "application/pdf" }));
 
@@ -25,6 +32,24 @@ describe("evidence core", () => {
       [{ name: "new.pdf", size: 2 * 1024 * 1024 }],
       [{ filename: "existing.pdf", size: FILE_LIMITS.maxTotalBytes - 1024 * 1024 }]
     ).map(issue => issue.code)).toContain("total-size-too-large");
+  });
+
+  it("reports malformed new and existing file sizes instead of treating them as zero", () => {
+    const newFileIssues = validateFileBatch([{ name: "new.pdf", size: Number.NaN }], []);
+    const existingSourceIssues = validateFileBatch([], [{ id: "S1", filename: "old.pdf", size: -1 }]);
+
+    expect(newFileIssues).toContainEqual(expect.objectContaining({ code: "invalid-file-size", index: 0 }));
+    expect(existingSourceIssues).toContainEqual(expect.objectContaining({ code: "invalid-file-size", sourceId: "S1" }));
+  });
+
+  it("accepts valid files at every exact limit", () => {
+    const maxFile = FILE_LIMITS.maxFileBytes;
+    const exactCount = Array.from({ length: FILE_LIMITS.maxFiles }, (_, index) => ({ name: `p${index}.pdf`, size: 0 }));
+    const exactTotal = Array.from({ length: 3 }, (_, index) => ({ name: `total-${index}.pdf`, size: maxFile }));
+
+    expect(validateFileBatch(exactCount, [])).toEqual([]);
+    expect(validateFileBatch([{ name: "exact.pdf", size: maxFile }], [])).toEqual([]);
+    expect(validateFileBatch(exactTotal, [])).toEqual([]);
   });
 
   it("renumbers included sources after removal", () => {
@@ -46,6 +71,16 @@ describe("evidence core", () => {
     });
   });
 
+  it("preserves malformed source sizes for later batch validation", () => {
+    const record = createSourceRecord({ name: "notes.txt", size: undefined }, "text", []);
+
+    expect(record.size).toBeUndefined();
+    expect(validateFileBatch([], [record])).toContainEqual(expect.objectContaining({
+      code: "invalid-file-size",
+      index: 0,
+    }));
+  });
+
   it("blocks excess evidence without truncation", () => {
     const sources = [{ included: true, status: "ready", text: "x".repeat(60001) }];
     expect(calculateEvidenceBudget(sources, 60000)).toEqual({ selectedChars: 60001, estimatedTokens: 15001, exceeded: true });
@@ -65,5 +100,14 @@ describe("evidence core", () => {
     expect(hints).toEqual(expect.arrayContaining(["telephone", "thai-national-id"]));
     expect(JSON.stringify(hints)).not.toContain("081-234-5678");
     expect(JSON.stringify(hints)).not.toContain("1234567890123");
+  });
+
+  it("identifies unformatted Western telephone numbers without returning the value", () => {
+    const telephone = "2125551212";
+    const hints = findLikelyIdentifierKinds(`Contact: ${telephone}`);
+
+    expect(hints).toContain("telephone");
+    expect(JSON.stringify(hints)).not.toContain(telephone);
+    expect(findLikelyIdentifierKinds(`x${telephone}9`)).not.toContain("telephone");
   });
 });
