@@ -10,6 +10,7 @@ function parserError(code) {
 }
 
 function errorCodeFor(error) {
+  if (error?.code === "image-only-pdf") return error.code;
   return error?.name === "PasswordException" ? "encrypted-pdf" : "malformed-file";
 }
 
@@ -29,6 +30,7 @@ export async function parsePdf(arrayBuffer, pdfjs, resourceUrls = {}) {
   }
 
   const text = pages.join("\n\n").trim();
+  if (!text) throw parserError("image-only-pdf");
   return { text, warnings: text.length < 40 ? ["image-only-or-empty-pdf"] : [] };
 }
 

@@ -26,8 +26,8 @@ describe("evidence parsers", () => {
     expect(result.text).toContain("Verified evidence source 2026");
   });
 
-  it("warns when PDF text is empty", async () => {
-    const result = await parsePdf(textBytes.buffer, {
+  it("rejects an image-only or zero-text PDF with a stable error", async () => {
+    const result = parsePdf(textBytes.buffer, {
       getDocument: () => ({
         promise: Promise.resolve({
           numPages: 1,
@@ -36,7 +36,7 @@ describe("evidence parsers", () => {
       }),
     });
 
-    expect(result).toEqual({ text: "", warnings: ["image-only-or-empty-pdf"] });
+    await expect(result).rejects.toEqual({ code: "image-only-pdf" });
   });
 
   it("extracts DOCX text", async () => {

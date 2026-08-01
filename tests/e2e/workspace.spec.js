@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 
 async function confirmDeidentified(page, label) {
   const confirmation = page.getByLabel(label);
@@ -20,6 +21,43 @@ async function processEvidence(page) {
   })).toBe(true);
   await process.focus();
   await page.keyboard.press("Enter");
+}
+
+async function selectDelayedEvidence(page) {
+  await page.evaluate(() => {
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    window.delayedEvidence = { calls: 0, release, settled: false };
+    const file = new File(["Delayed evidence"], "delayed-evidence.txt", { type: "text/plain" });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => {
+        window.delayedEvidence.calls += 1;
+        await gate;
+        setTimeout(() => { window.delayedEvidence.settled = true; }, 0);
+        return new TextEncoder().encode("Delayed evidence source").buffer;
+      },
+    });
+    document.querySelector("#evidenceWorkspaceRoot").dispatchEvent(new CustomEvent("evidence:add", {
+      bubbles: true,
+      detail: { files: [file] },
+    }));
+  });
+}
+
+async function releaseDelayedEvidence(page) {
+  await page.evaluate(() => window.delayedEvidence.release());
+  await page.waitForFunction(() => window.delayedEvidence.settled);
+}
+
+async function imageOnlyPdf() {
+  const document = await PDFDocument.create();
+  const page = document.addPage([100, 100]);
+  const image = await document.embedPng(Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    "base64"
+  ));
+  page.drawImage(image, { x: 10, y: 10, width: 80, height: 80 });
+  return Buffer.from(await document.save());
 }
 
 test("renders the approved hybrid workspace", async ({ page }) => {
@@ -132,6 +170,89 @@ test("requires deidentification confirmation and parses uploaded evidence", asyn
   await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toContainText("searchable-evidence.pdf");
   await expect(page.getByTestId("source-S1")).toContainText("Ready");
+});
+
+test("clearing uploaded mode during parsing cannot restore stale evidence", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.evaluate(() => {
+    window.workspaceEvents = [];
+    window.addEventListener("workspace:statechange", event => window.workspaceEvents.push(event.detail));
+  });
+  await selectDelayedEvidence(page);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S1")).toContainText("Extracting text");
+
+  await page.getByLabel("Evidence mode").selectOption("planning");
+  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Clear and change mode" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("source-S1")).toHaveCount(0);
+  await releaseDelayedEvidence(page);
+
+  await expect(page.getByTestId("source-S1")).toHaveCount(0);
+  await expect(page.getByLabel("Evidence mode")).toHaveValue("planning");
+  expect(await page.evaluate(() => window.workspaceEvents.at(-1).state.sources)).toEqual([]);
+});
+
+test("repeated Process activation cannot overlap or retain File records", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.evaluate(() => {
+    window.workspaceEvents = [];
+    window.addEventListener("workspace:statechange", event => window.workspaceEvents.push(event.detail));
+  });
+  await selectDelayedEvidence(page);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await page.locator("[data-action='evidence-process']").press("Enter");
+  await expect.poll(() => page.evaluate(() => window.delayedEvidence.calls)).toBeGreaterThan(0);
+  await releaseDelayedEvidence(page);
+  await page.waitForFunction(() => window.workspaceEvents.some(event => event.action === "evidence-process"));
+
+  expect(await page.evaluate(() => window.delayedEvidence.calls)).toBe(1);
+  expect(await page.evaluate(() => {
+    const finalEvent = window.workspaceEvents.filter(event => event.action === "evidence-process").at(-1);
+    return finalEvent.state.sources.every(source => !("file" in source) && source.status !== "extracting");
+  })).toBe(true);
+});
+
+test("a second file batch requires fresh deidentification confirmation", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S1")).toContainText("Ready");
+
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.docx");
+  await expect(page.getByLabel("I confirm these files are deidentified")).not.toBeChecked();
+  await expect(page.locator("[data-action='evidence-process']")).toBeDisabled();
+  await expect(page.getByTestId("validation-summary")).toContainText("Confirm that identifying information was removed");
+});
+
+test("an image-only PDF becomes an excluded error source", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles({
+    name: "image-only.pdf",
+    mimeType: "application/pdf",
+    buffer: await imageOnlyPdf(),
+  });
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+
+  const source = page.getByTestId("source-S1");
+  await expect(source).toHaveAttribute("data-error-code", "image-only-pdf");
+  await expect(source).toContainText("PDF contains no searchable text; OCR is not supported");
+  await expect(page.getByLabel("Include S1")).toBeDisabled();
+  await expect(page.getByLabel("Include S1")).not.toBeChecked();
 });
 
 test("blocks an over-budget source without truncating it", async ({ page }) => {

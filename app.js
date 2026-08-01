@@ -15,22 +15,28 @@ let state = createInitialState();
 let pendingTransition = null;
 let pendingFiles = [];
 let evidenceIssues = [];
+let evidenceOperationGeneration = 0;
+let evidenceProcessing = false;
 
 function announce(message) { root.querySelector("#appStatus").textContent = message; }
 function render() {
   renderWorkspace(root, state, validateState(state));
   if (state.evidenceMode === "uploaded") {
-    renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state, { pendingFiles, issues: evidenceIssues });
+    renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state, { pendingFiles, issues: evidenceIssues, processing: evidenceProcessing });
   }
 }
 function publish(action) { window.dispatchEvent(new CustomEvent("workspace:statechange", { detail: { action, state: structuredClone(state) } })); }
 function update(next, action, shouldRender = true) { state = next; if (shouldRender) render(); publish(action); }
+function cancelEvidenceProcessing() {
+  evidenceOperationGeneration += 1;
+  evidenceProcessing = false;
+}
 function updateDeidentificationConfirmation(confirmed) {
   state = setDeidentificationConfirmed(state, confirmed);
   const preflight = validateState(state);
   renderValidation(root, preflight, state.interfaceLocale);
   updateLifecycleReadiness(root, preflight, state.interfaceLocale);
-  root.querySelector("[data-action='evidence-process']").disabled = !state.deidentificationConfirmed;
+  root.querySelector("[data-action='evidence-process']").disabled = evidenceProcessing || !state.deidentificationConfirmed;
   publish("set-deidentification");
 }
 function restoreTrigger(transition) {
@@ -56,7 +62,10 @@ function confirmTransition() {
   if (!transition) return;
   let next;
   if (transition.kind === "research-type") next = setResearchType(state, transition.nextId, true).state;
-  else if (transition.kind === "evidence-mode") next = setDeidentificationConfirmed(replaceSources(setEvidenceMode(state, transition.nextId), []), false);
+  else if (transition.kind === "evidence-mode") {
+    cancelEvidenceProcessing();
+    next = setDeidentificationConfirmed(replaceSources(setEvidenceMode(state, transition.nextId), []), false);
+  }
   else next = setStage(state, transition.nextId);
   if (transition.kind === "evidence-mode") { pendingFiles = []; evidenceIssues = []; }
   pendingTransition = null;
@@ -69,19 +78,35 @@ function requestEvidenceMode(nextMode) {
     beginConfirmation("evidence-mode", nextMode, []);
     return;
   }
+  if (state.evidenceMode === "uploaded" && nextMode !== "uploaded") cancelEvidenceProcessing();
   pendingFiles = nextMode === "uploaded" ? pendingFiles : [];
   evidenceIssues = [];
-  update(setEvidenceMode(state, nextMode), "set-evidence-mode");
+  const next = setEvidenceMode(state, nextMode);
+  update(nextMode === "uploaded" ? next : setDeidentificationConfirmed(next, false), "set-evidence-mode");
 }
 
 async function processEvidenceFiles() {
-  if (!state.deidentificationConfirmed || !pendingFiles.length) return;
-  const result = await ingestFiles(pendingFiles, state, PARSER_DEPENDENCIES, sources => {
-    update(replaceSources(state, sources), "evidence-progress");
-  });
-  evidenceIssues = result.issues;
-  pendingFiles = result.issues.length ? pendingFiles : [];
-  update(replaceSources(state, result.sources), "evidence-process");
+  if (evidenceProcessing || !state.deidentificationConfirmed || !pendingFiles.length) return;
+  const generation = ++evidenceOperationGeneration;
+  const files = [...pendingFiles];
+  evidenceProcessing = true;
+  root.querySelector("[data-action='evidence-process']").disabled = true;
+  const isCurrent = () => evidenceProcessing && generation === evidenceOperationGeneration;
+  try {
+    const result = await ingestFiles(files, state, PARSER_DEPENDENCIES, sources => {
+      if (isCurrent()) update(replaceSources(state, sources), "evidence-progress");
+    });
+    if (!isCurrent()) return;
+    evidenceIssues = result.issues;
+    pendingFiles = result.issues.length ? files : [];
+    evidenceProcessing = false;
+    update(replaceSources(state, result.sources), "evidence-process");
+  } finally {
+    if (generation === evidenceOperationGeneration && evidenceProcessing) {
+      evidenceProcessing = false;
+      render();
+    }
+  }
 }
 
 function requestStage(nextId) {
@@ -120,9 +145,11 @@ root.addEventListener("change", event => {
 });
 
 root.addEventListener("evidence:add", event => {
+  cancelEvidenceProcessing();
   pendingFiles = event.detail.files;
   evidenceIssues = [];
-  render();
+  const retainedSources = state.sources.filter(source => source.status !== "extracting");
+  update(setDeidentificationConfirmed(replaceSources(state, retainedSources), false), "evidence-add");
 });
 root.addEventListener("evidence:confirm-deidentified", event => updateDeidentificationConfirmation(event.detail.confirmed));
 root.addEventListener("evidence:process", () => { void processEvidenceFiles(); });
@@ -142,6 +169,7 @@ root.addEventListener("click", event => {
   if (action === "cancel-confirmation") cancelConfirmation();
   if (action === "confirm-confirmation") confirmTransition();
   if (event.target.closest("#resetButton")) {
+    cancelEvidenceProcessing();
     pendingTransition = null;
     pendingFiles = [];
     evidenceIssues = [];

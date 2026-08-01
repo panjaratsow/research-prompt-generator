@@ -84,7 +84,7 @@ export async function ingestFiles(files, state, dependencies, onProgress) {
   return { sources: renumberSources(sources), issues: [] };
 }
 
-export function renderEvidenceWorkspace(container, state, { pendingFiles = [], issues = [] } = {}) {
+export function renderEvidenceWorkspace(container, state, { pendingFiles = [], issues = [], processing = false } = {}) {
   if (!container) return;
   const locale = state.interfaceLocale;
   const budget = calculateEvidenceBudget(state.sources, state.evidenceBudget);
@@ -102,7 +102,7 @@ export function renderEvidenceWorkspace(container, state, { pendingFiles = [], i
       return element("label", { className: "check-control", htmlFor: "evidenceDeidentified" }, [checkbox, document.createTextNode(t(locale, "evidence.confirmLabel"))]);
     })(),
     (() => {
-      const process = element("button", { type: "button", className: "primary-button", disabled: !state.deidentificationConfirmed, dataset: { action: "evidence-process" }, textContent: t(locale, "evidence.process") });
+      const process = element("button", { type: "button", className: "primary-button", disabled: processing || !state.deidentificationConfirmed, dataset: { action: "evidence-process" }, textContent: t(locale, "evidence.process") });
       process.addEventListener("click", () => emit(container, "evidence:process"));
       return process;
     })(),
