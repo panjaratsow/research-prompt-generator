@@ -2,4 +2,6 @@
 .worktrees/
 .codex_doc_review/
 .superpowers/
+node_modules/
+.npm-cache/
 __pycache__/
