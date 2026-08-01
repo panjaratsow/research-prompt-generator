@@ -21,7 +21,7 @@ function createIconButton(action, label, icon) {
 
 function drawerContent(prompt, locale, metadata) {
   const headingId = "promptDrawerTitle";
-  const output = element("textarea", { id: "promptOutput", className: "prompt-output", readOnly: true, value: prompt, dataset: { testid: "prompt-output" } });
+  const output = element("textarea", { id: "promptOutput", className: "prompt-output", readOnly: true, value: prompt, textContent: prompt, dataset: { testid: "prompt-output" } });
   const copy = createIconButton("prompt-copy", t(locale, "actions.copy"), "copy.svg");
   const download = createIconButton("prompt-download", t(locale, "actions.download"), "download.svg");
   const close = createIconButton("prompt-close", t(locale, "actions.close"), "x.svg");

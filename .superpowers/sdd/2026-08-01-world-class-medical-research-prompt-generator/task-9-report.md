@@ -54,3 +54,50 @@ Manual local-browser checks against `http://127.0.0.1:4173/`:
 ## Remaining Concern
 
 This environment lacks an executable Node/npm launcher, so the required unit, desktop/mobile Playwright, and Axe suites could not run here. Run the listed npm commands in a Node 20.19+ environment before release.
+
+## Verification Gap Resolution (2026-08-02)
+
+The bundled Node runtime was supplied after the initial report. The following PowerShell environment setup was used for every command:
+
+```powershell
+$env:PATH='C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;'+$env:PATH
+$env:NODE_USE_SYSTEM_CA='1'
+$env:npm_config_cache=(Join-Path $PWD '.npm-cache')
+$node='C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
+```
+
+Exact unit command and final result:
+
+```powershell
+& $node node_modules/vitest/vitest.mjs run
+```
+
+```text
+Test Files  9 passed (9)
+Tests  62 passed (62)
+```
+
+The first external-server readiness probe used `Get-NetTCPConnection`; it did not detect the owned listener, timed out, and did not run E2E. `netstat -ano` confirmed that the server was listening, so the owned process was stopped and the readiness probe was corrected to `netstat`. This was an environment-observation issue, not an application failure.
+
+The first desktop run then exposed the prompt-action regression: Playwright's `toContainText` read an empty textarea text node even though the prompt was present in `.value`. The existing E2E regression failed as expected. The minimal production correction initializes both the readonly textarea value and text content with the generated prompt.
+
+Exact final E2E server/test command:
+
+```powershell
+$server=Start-Process -FilePath $node -ArgumentList 'scripts/serve.mjs','--port','4173' -WorkingDirectory $PWD -WindowStyle Hidden -PassThru
+$deadline=(Get-Date).AddSeconds(30)
+while (-not (netstat -ano | Select-String '127\.0\.0\.1:4173\s+.*LISTENING')) { if ((Get-Date) -gt $deadline) { throw 'Timed out waiting for port 4173.' }; Start-Sleep -Milliseconds 250 }
+& $node node_modules/@playwright/test/cli.js test --project=desktop-chromium --workers=1
+& $node node_modules/@playwright/test/cli.js test --project=mobile-chromium --workers=1
+```
+
+The actual execution used `try`/`finally` to call `Stop-Process` for the owned server after the two projects completed.
+
+Final results:
+
+```text
+desktop-chromium: 15 passed (12.4s)
+mobile-chromium: 15 passed (12.8s)
+```
+
+Both projects include `tests/e2e/accessibility.spec.js`; the Axe WCAG 2.0/2.1 A/AA regression passed in each. Generated `test-results` output was removed after the run. The final `git diff --check` passed with no findings. The initial environment concern is resolved.
