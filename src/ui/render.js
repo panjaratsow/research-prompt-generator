@@ -1,6 +1,7 @@
 import { LIFECYCLE_STAGES, RESEARCH_TYPES, STANDARDS, getAdaptiveFieldIds, resolveStandards } from "../catalog/index.js";
 import { getRequiredFieldIds } from "../validation.js";
 import { t } from "../i18n.js";
+import { renderEvidenceWorkspace } from "./evidence-workspace.js";
 
 function element(tag, options = {}, children = []) {
   const node = document.createElement(tag);
@@ -74,10 +75,6 @@ export function renderWorkspace(root, state, preflight) {
   const evidenceMode = element("select", { dataset: { action: "evidence-mode" } }, ["planning", "uploaded", "web-research"].map(id => option(id, t(locale, `evidenceModes.${id}`), id === state.evidenceMode)));
   const outputLanguage = element("select", { dataset: { action: "output-language" } }, ["thai", "english", "bilingual"].map(id => option(id, t(locale, `outputLanguages.${id}`), id === state.outputLanguage)));
   const controls = [controlLabel(t(locale, "researchType"), researchType), controlLabel(t(locale, "evidenceMode"), evidenceMode), controlLabel(t(locale, "outputLanguage"), outputLanguage)];
-  if (state.evidenceMode === "uploaded") {
-    const deidentified = element("input", { type: "checkbox", checked: state.deidentificationConfirmed, dataset: { action: "deidentification" } });
-    controls.push(element("label", { className: "check-control" }, [deidentified, document.createTextNode(t(locale, "fields.deidentificationConfirmed"))]));
-  }
   root.querySelector("#setupBar").replaceChildren(element("div", { className: "panel-kicker", textContent: t(locale, "setup") }), element("div", { className: "setup-controls" }, controls));
 
   root.querySelector("#lifecycleRail").replaceChildren(
@@ -102,10 +99,12 @@ export function renderWorkspace(root, state, preflight) {
       element("h2", { textContent: t(locale, `researchTypes.${state.researchTypeId}`) }),
       element("p", { className: "form-description", textContent: t(locale, `stageTasks.${state.stageId}`) }),
     ])]),
+    ...(state.evidenceMode === "uploaded" ? [element("div", { id: "evidenceWorkspaceRoot" })] : []),
     form,
     validationSummary
   );
   renderValidation(root, preflight, locale);
+  if (state.evidenceMode === "uploaded") renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state);
 
   const applicable = resolveStandards(state.researchTypeId, state.stageId);
   const typeStandards = STANDARDS.filter(standard => standard.researchTypes.includes(state.researchTypeId));
@@ -119,11 +118,12 @@ export function renderWorkspace(root, state, preflight) {
 export function renderConfirmation(root, labels, locale) {
   const dialogRoot = root.querySelector("#dialogRoot");
   const cancel = element("button", { type: "button", className: "secondary-button", dataset: { action: "cancel-confirmation" }, textContent: t(locale, "cancel") });
-  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: t(locale, "confirm") });
+  const clearingEvidence = labels.length === 0;
+  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : t(locale, "confirm") });
   dialogRoot.replaceChildren(element("div", { className: "dialog-backdrop" }, [element("section", { className: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirmTitle" }, [
-    element("h2", { id: "confirmTitle", textContent: t(locale, "confirmTitle") }),
-    element("p", { textContent: t(locale, "confirmText") }),
-    element("ul", {}, labels.map(label => element("li", { textContent: label }))),
+    element("h2", { id: "confirmTitle", textContent: clearingEvidence ? t(locale, "evidence.clearTitle") : t(locale, "confirmTitle") }),
+    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : t(locale, "confirmText") }),
+    ...(labels.length ? [element("ul", {}, labels.map(label => element("li", { textContent: label })))] : []),
     element("div", { className: "dialog-actions" }, [cancel, confirm]),
   ])]));
   cancel.focus();

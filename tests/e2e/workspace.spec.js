@@ -97,3 +97,35 @@ test("localizes document language and resolves the uploaded-mode confirmation bl
   await page.getByRole("button", { name: /เริ่มพื้นที่ทำงานใหม่/i }).click();
   await expect(page.locator("html")).toHaveAttribute("lang", "th");
 });
+
+test("requires deidentification confirmation and parses uploaded evidence", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await expect(page.getByTestId("privacy-confirmation")).toBeVisible();
+  await page.getByLabel("I confirm these files are deidentified").check();
+  await page.getByRole("button", { name: "Process files" }).click();
+  await expect(page.getByTestId("source-S1")).toContainText("searchable-evidence.pdf");
+  await expect(page.getByTestId("source-S1")).toContainText("Ready");
+});
+
+test("blocks an over-budget source without truncating it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByLabel("Evidence budget").selectOption("25000");
+  await page.evaluate(() => window.__TEST_ONLY__?.loadSyntheticEvidence("x".repeat(25001)));
+  await expect(page.getByTestId("preflight-blocking")).toContainText("exceeds the selected evidence budget");
+});
+
+test("wraps uploaded source rows without mobile overflow", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await page.getByLabel("I confirm these files are deidentified").check();
+  await page.getByRole("button", { name: "Process files" }).click();
+  await expect(page.getByTestId("source-S1")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
