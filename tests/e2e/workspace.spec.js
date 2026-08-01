@@ -9,3 +9,12 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("adaptive-form")).toBeVisible();
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
+
+test("keeps the workspace regions visible without horizontal page overflow on mobile", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("setup-bar")).toBeVisible();
+  await expect(page.getByTestId("lifecycle-rail")).toBeVisible();
+  await expect(page.getByTestId("adaptive-form")).toBeVisible();
+  await expect(page.getByTestId("standards-summary")).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});

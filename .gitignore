@@ -4,4 +4,6 @@
 .superpowers/
 node_modules/
 .npm-cache/
+test-results/
+playwright-report/
 __pycache__/
