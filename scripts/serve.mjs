@@ -4,6 +4,7 @@ import { dirname, extname, normalize, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const githubPagesPrefix = "/research-prompt-generator";
 const portIndex = process.argv.indexOf("--port");
 const port = portIndex === -1 ? 4173 : Number(process.argv[portIndex + 1]);
 const mimeTypes = {
@@ -19,7 +20,10 @@ const mimeTypes = {
 function resolveRequestPath(urlPath) {
   let decoded;
   try { decoded = decodeURIComponent(urlPath); } catch { return undefined; }
-  const relative = decoded === "/" ? "index.html" : decoded.replace(/^[/\\]+/, "");
+  const prefixed = decoded === githubPagesPrefix || decoded.startsWith(`${githubPagesPrefix}/`)
+    ? decoded.slice(githubPagesPrefix.length) || "/"
+    : decoded;
+  const relative = prefixed === "/" ? "index.html" : prefixed.replace(/^[/\\]+/, "");
   const path = resolve(root, normalize(relative));
   return path === root || path.startsWith(`${root}${sep}`) ? path : null;
 }

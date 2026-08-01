@@ -83,6 +83,48 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
+test("serves all local assets beneath the GitHub Pages path prefix", async ({ page }) => {
+  const requestPaths = [];
+  const failedResponses = [];
+  page.on("request", request => {
+    const url = new URL(request.url());
+    if (url.hostname === "127.0.0.1") requestPaths.push(url.pathname);
+  });
+  page.on("response", response => {
+    const url = new URL(response.url());
+    if (url.hostname === "127.0.0.1" && response.status() >= 400) {
+      failedResponses.push(`${response.status()} ${url.pathname}`);
+    }
+  });
+
+  await page.goto("/research-prompt-generator/");
+  await expect(page.getByRole("heading", { name: "Research Prompt Studio" })).toBeVisible();
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.evaluate(async () => {
+    await Promise.all([
+      fetch(document.querySelector("link[rel='manifest']").href),
+      fetch(document.querySelector("link[rel='icon']").href),
+    ]);
+  });
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S1")).toContainText("Ready");
+
+  expect(failedResponses).toEqual([]);
+  expect(requestPaths).toEqual(expect.arrayContaining([
+    "/research-prompt-generator/app.js",
+    "/research-prompt-generator/src/evidence/browser-adapters.js",
+    "/research-prompt-generator/site.webmanifest",
+    "/research-prompt-generator/favicon.svg",
+    "/research-prompt-generator/vendor/mammoth.browser.min.js",
+    "/research-prompt-generator/vendor/pdf.mjs",
+    "/research-prompt-generator/vendor/pdf.worker.mjs",
+  ]));
+  expect(requestPaths.some(path => /^\/(?:vendor|src|favicon)/.test(path))).toBe(false);
+});
+
 test("copies, downloads, revokes the URL, and restores focus after Escape", async ({ page }) => {
   await page.addInitScript(() => {
     window.revokedPromptUrls = [];

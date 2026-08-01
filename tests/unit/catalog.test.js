@@ -45,3 +45,16 @@ describe("research catalogue", () => {
     expect(getAdaptiveFieldIds("diagnostics", "protocol")).toEqual([]);
   });
 });
+
+describe("catalogue resolution matrix", () => {
+  for (const type of RESEARCH_TYPES) {
+    for (const stage of LIFECYCLE_STAGES) {
+      it(`${type.id}/${stage.id} resolves deterministically`, () => {
+        const standards = resolveStandards(type.id, stage.id);
+
+        expect(standards.every(item => item.officialUrl.startsWith("https://"))).toBe(true);
+        expect(getAdaptiveFieldIds(type.id, stage.id).length).toBeGreaterThan(0);
+      });
+    }
+  }
+});

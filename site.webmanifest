@@ -1,7 +1,7 @@
 {
-  "name": "Research Prompt Generator",
-  "short_name": "Research Prompts",
-  "description": "A static prompt generator for AI-assisted academic research workflows.",
+  "name": "Research Prompt Studio",
+  "short_name": "Research Prompt Studio",
+  "description": "Privacy-first adaptive medical research prompts for the research lifecycle.",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#f8fafc",
