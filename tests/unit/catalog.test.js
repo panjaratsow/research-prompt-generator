@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   LIFECYCLE_STAGES,
   RESEARCH_TYPES,
-  STANDARD_IDS,
   STANDARDS,
   getAdaptiveFieldIds,
   getResearchType,
@@ -31,7 +30,17 @@ describe("research catalogue", () => {
   });
 
   it("uses every approved standard ID exactly once and does not fuzzy-match IDs", () => {
-    expect(STANDARDS.map(item => item.id)).toEqual(STANDARD_IDS);
+    const standardIds = STANDARDS.map(item => item.id);
+
+    expect(standardIds).toHaveLength(25);
+    expect(new Set(standardIds).size).toBe(25);
+    expect(standardIds).toEqual([
+      "spirit-2025", "consort-2025", "ich-gcp-e6-r3", "strobe", "record",
+      "stard", "tripod", "tripod-ai", "prisma-p", "prisma-2020", "prisma-scr",
+      "grade", "coreq", "srqr", "greet", "squire-edu", "arrive-2",
+      "spirit-ai", "consort-ai", "decide-ai", "claim", "stari", "squire",
+      "tidier", "cheers-2022",
+    ]);
     expect(resolveStandards("randomized-trials", "protocol")).toEqual([]);
     expect(getAdaptiveFieldIds("diagnostics", "protocol")).toEqual([]);
   });
