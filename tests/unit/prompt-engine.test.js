@@ -102,6 +102,102 @@ describe("prompt contract", () => {
     expect(planning).toContain("does not permit literature claims or citations");
   });
 
+  it("requires named databases, official sources, stable links, and a search date for web research", () => {
+    const prompt = buildPrompt(validPlanningState({ evidenceMode: "web-research" }));
+
+    expect(prompt).toContain("MEDLINE/PubMed");
+    expect(prompt).toContain("Embase");
+    expect(prompt).toContain("official guideline and registry sources");
+    expect(prompt).toContain("direct link");
+    expect(prompt).toMatch(/DOI|PMID|registry identifier/);
+    expect(prompt).toContain("search date (YYYY-MM-DD)");
+  });
+
+  it("serializes persistent setup and the structured study design", () => {
+    const prompt = buildPrompt(validPlanningState({
+      researcherRole: "postgraduate-student",
+      experienceLevel: "advanced",
+      scientificField: "Maternal-fetal medicine",
+      institutionSetting: "Thailand, university teaching hospital",
+      targetOutput: "journal-manuscript",
+      citationStyle: "AMA",
+      studyDesignId: "cohort",
+    }));
+
+    expect(prompt).toContain("Researcher role: Postgraduate student");
+    expect(prompt).toContain("Experience level: Advanced");
+    expect(prompt).toContain("Scientific field: Maternal-fetal medicine");
+    expect(prompt).toContain("Institutional setting: Thailand, university teaching hospital");
+    expect(prompt).toContain("Study subtype/design: Cohort study");
+    expect(prompt).toContain("Target output: Journal manuscript");
+    expect(prompt).toContain("Citation style: AMA");
+  });
+
+  it("applies governance sources by setting, design, stage, and research family", () => {
+    const reportingFields = {
+      ...validPlanningState().fields,
+      primaryOutcome: "Severe postpartum haemorrhage",
+      existingInformation: "Protocol details remain to be verified",
+    };
+    const clinicalPrompt = buildPrompt(validPlanningState({
+      stageId: "reporting",
+      fields: reportingFields,
+    }));
+    const aiPrompt = buildPrompt(validPlanningState({
+      researchTypeId: "ai-health-data",
+      studyDesignId: "ai-imaging-external-validation",
+      stageId: "reporting",
+      fields: {
+        topic: "External validation of a chest-radiograph model",
+        population: "Adults at Thai university hospitals",
+        researchQuestion: "How well does the model validate externally?",
+        primaryOutcome: "Diagnostic performance",
+        existingInformation: "Locked model and independent dataset",
+        intendedUse: "Triage support",
+        targetPopulation: "Adults receiving chest radiographs",
+        datasetProvenance: "Independent Thai hospital dataset",
+        referenceStandard: "Radiologist consensus",
+        modelInputs: "Chest radiographs",
+        validationDataset: "External dataset",
+        performanceMeasures: "Calibration and discrimination",
+      },
+    }));
+
+    expect(clinicalPrompt).toContain("Thai Personal Data Protection Act (PDPA)");
+    expect(clinicalPrompt).toContain("local IRB and institutional policy");
+    expect(clinicalPrompt).toContain("Declaration of Helsinki 2024");
+    expect(clinicalPrompt).toContain("ICMJE Recommendations (January 2026)");
+    expect(clinicalPrompt).toContain("EQUATOR Network");
+    expect(aiPrompt).toContain("WHO Ethics and Governance of Artificial Intelligence for Health");
+    expect(aiPrompt).not.toContain("CONSORT-AI");
+    expect(aiPrompt).not.toContain("DECIDE-AI");
+  });
+
+  it("ends with a task-tailored human-review checklist", () => {
+    const prompt = buildPrompt(validPlanningState({
+      researchTypeId: "evidence-review",
+      studyDesignId: "systematic-review",
+      evidenceMode: "web-research",
+      fields: {
+        topic: "Simulation-based medical education",
+        population: "Postgraduate medical trainees",
+        researchQuestion: "What is the effect of simulation-based education?",
+        reviewType: "Systematic review",
+        reviewQuestion: "What is the effect of simulation-based education?",
+        eligibilityCriteria: "Comparative studies",
+        informationSources: "MEDLINE and ERIC",
+        synthesisMethod: "Random-effects meta-analysis",
+      },
+    }));
+    const finalSection = prompt.slice(prompt.indexOf("12. LIMITATIONS AND HUMAN REVIEW"));
+
+    expect(finalSection).toContain("Human-review checklist");
+    expect(finalSection).toContain("information specialist");
+    expect(finalSection).toContain("search dates");
+    expect(finalSection).toContain("systematic review");
+    expect(finalSection).toMatch(/- \[ \]/);
+  });
+
   it.each([
     ["uploaded", "thai", "Vancouver", "Use only the uploaded SOURCE blocks as evidence"],
     ["web-research", "english", "AMA", "Search for and cite verifiable external sources"],

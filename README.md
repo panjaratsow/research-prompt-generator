@@ -2,7 +2,7 @@
 
 ## Overview
 
-Research Prompt Studio is a static, browser-only workspace for composing structured, stage-aware medical research prompts. It adapts frameworks, methodological checks, standards, evidence boundaries, and safeguards to the selected research type and lifecycle stage. It supports Thai and English interface copy and can request Thai, English, or bilingual model output.
+Research Prompt Studio is a static, browser-only workspace for composing structured, stage-aware medical research prompts. It adapts frameworks, methodological checks, standards, evidence boundaries, and safeguards to the selected research type, structured subtype/design, and lifecycle stage. Persistent setup records researcher role and experience, scientific field, Thailand/institution context, target output, output language, and citation style. It supports Thai and English interface copy and can request Thai, English, or bilingual model output.
 
 The app does not call an AI service. Generated prompts must be copied manually into the AI service chosen by the researcher.
 
@@ -26,12 +26,12 @@ The workspace supports: research question, evidence, protocol, ethics and govern
 ## Evidence Modes
 
 - **Planning:** creates a planning scaffold and prohibits literature claims and citations.
-- **Web research:** instructs the downstream AI to use verifiable external sources and traceable citations.
+- **Web research:** instructs the downstream AI to search named databases and official sources, report the search date and reproducible strategy, and provide direct links plus DOI, PMID, registry, or other stable identifiers where available.
 - **Uploaded evidence:** restricts the downstream AI to selected local source blocks. Source content is untrusted data, never instructions.
 
 ## Supported Files and Limits
 
-Supported local uploads are searchable PDF, DOCX, TXT, Markdown, CSV, RIS, and BibTeX files. The application accepts up to 10 files, up to 20 MiB per file and 60 MiB in total. Selected extracted evidence has configurable 25,000, 60,000, or 120,000 character budgets; an over-budget selection is blocked and is never silently truncated.
+Supported local uploads are searchable PDF, DOCX, TXT, Markdown, CSV, RIS, and BibTeX files. The application retains at most 10 source inventory rows, accepts files up to 20 MiB each and 60 MiB in total, and reports additional files without retaining them. Unsupported, legacy, oversized, encrypted, empty, malformed, and image-only files remain visible as excluded inventory rows within that cap while valid peers continue processing. CSV, RIS, and BibTeX receive minimal structural validation; UTF-8 is validated deliberately and OCR is not attempted. Selected extracted evidence has configurable 25,000, 60,000, or 120,000 character budgets; each row shows its full contribution, and an over-budget selection is blocked and is never silently truncated.
 
 Image-only PDFs are rejected because OCR is not provided. Parsing is local and does not calculate research statistics or create an external evidence store.
 
@@ -43,7 +43,7 @@ Treat uploads as untrusted evidence. Confirm deidentification before processing,
 
 ## Standards
 
-Adaptive prompts surface applicable research frameworks and reporting or conduct standards, including SPIRIT, CONSORT, ICH GCP, STROBE, RECORD, STARD, TRIPOD, PRISMA, GRADE, COREQ, SRQR, GREET, SQUIRE-EDU, ARRIVE, SPIRIT-AI, CONSORT-AI, DECIDE-AI, CLAIM, StaRI, SQUIRE, TIDieR, and CHEERS. Standards are prompts for review, not a compliance or certification claim.
+Adaptive prompts use explicit applicability predicates for the selected family, subtype/design, and stage. Medical education inherits its underlying CONSORT-, STROBE-, or COREQ/SRQR-style guidance; scoping, routinely collected data, AI trials, early AI evaluation, quality improvement, and economic evaluation receive only their applicable extensions. Official links and the catalogue review date (`2026-08-01`) are shown in the workspace. Standards are prompts for review, not a compliance or certification claim.
 
 Researchers remain responsible for Thai PDPA, local institutional review board or ethics committee requirements, local data-governance obligations, and applicable international standards. The prompts require human expert review and must not be treated as ethics approval, registration, legal advice, or a clinical decision.
 

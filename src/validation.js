@@ -85,7 +85,7 @@ function addContextualWarnings(state, warnings) {
   if (["observational", "prediction", "ai-health-data"].includes(researchTypeId)) {
     warningForMissingField(warnings, state, "dataSharingPlan", "missing-data-sharing", "validation.missingDataSharing");
   }
-  if (["prediction", "ai-health-data"].includes(researchTypeId)) {
+  if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(state.studyDesignId)) {
     warningForMissingField(warnings, state, "externalValidation", "missing-external-validation", "validation.missingExternalValidation");
   }
 }
@@ -105,18 +105,18 @@ export function validateState(state) {
     if (!hasValue(fields, fieldId)) blocking.push(requiredIssue(fieldId));
   }
   if (state.evidenceMode === "uploaded" && !state.deidentificationConfirmed) {
-    blocking.push(issue("deidentification-unconfirmed", "validation.confirmDeidentification", { fieldId: "deidentificationConfirmed" }));
+    blocking.push(issue("deidentification-unconfirmed", "validation.confirmDeidentification", { fieldId: "evidenceDeidentified" }));
   }
 
   const readySources = (state.sources ?? []).filter(source => source.status === "ready" && source.included);
   if (state.evidenceMode === "uploaded" && !readySources.length) {
-    blocking.push(issue("uploaded-evidence-empty", "validation.uploadEvidence"));
+    blocking.push(issue("uploaded-evidence-empty", "validation.uploadEvidence", { fieldId: "evidenceInput" }));
   }
   for (const source of readySources.filter(source => typeof source.text !== "string" || !source.text.trim())) {
     blocking.push(issue("selected-source-empty", "validation.emptySourceText", { sourceId: source.id }));
   }
   if (state.evidenceMode === "uploaded" && calculateEvidenceBudget(state.sources ?? [], state.evidenceBudget).exceeded) {
-    blocking.push(issue("evidence-budget-exceeded", "validation.evidenceBudgetExceeded"));
+    blocking.push(issue("evidence-budget-exceeded", "validation.evidenceBudgetExceeded", { fieldId: "evidenceBudget" }));
   }
   if (state.identifiableDataPresent || readySources.some(source => source.identifiableDataPresent)) {
     blocking.push(issue("identifiable-data-present", "validation.identifiableDataPresent"));

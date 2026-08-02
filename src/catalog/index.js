@@ -1,6 +1,6 @@
 export { RESEARCH_TYPES, RESEARCH_TYPE_IDS } from "./research-types.js";
 export { LIFECYCLE_STAGES, STAGE_IDS } from "./lifecycle-stages.js";
-export { STANDARD_IDS, STANDARDS } from "./standards.js";
+export { STANDARD_IDS, STANDARDS, STANDARDS_REVIEWED_ON } from "./standards.js";
 
 import { LIFECYCLE_STAGES } from "./lifecycle-stages.js";
 import { RESEARCH_TYPES } from "./research-types.js";
@@ -14,15 +14,55 @@ export function getLifecycleStage(id) {
   return LIFECYCLE_STAGES.find(stage => stage.id === id);
 }
 
-export function resolveStandards(typeId, stageId) {
-  return STANDARDS.filter(standard =>
-    standard.researchTypes.includes(typeId) && standard.stages.includes(stageId)
+export function getStudyDesignOptions(typeId) {
+  return getResearchType(typeId)?.designs ?? [];
+}
+
+export function getStudyDesign(typeId, studyDesignId) {
+  return getStudyDesignOptions(typeId).find(design => design.id === studyDesignId);
+}
+
+export function isStandardApplicable(standard, { typeId, stageId = "", studyDesignId }) {
+  return standard.applicability.some(rule =>
+    rule.researchTypeId === typeId
+    && (!stageId || rule.stages.includes(stageId))
+    && (!rule.studyDesignIds.length || rule.studyDesignIds.includes(studyDesignId))
   );
 }
 
-export function getAdaptiveFieldIds(typeId, stageId) {
+export function resolveStandards(typeId, stageId, studyDesignId) {
+  const type = getResearchType(typeId);
+  if (!type || !getLifecycleStage(stageId)) return [];
+  const designId = studyDesignId ?? type.defaultStudyDesignId;
+  if (!getStudyDesign(typeId, designId)) return [];
+  return STANDARDS.filter(standard => isStandardApplicable(standard, { typeId, stageId, studyDesignId: designId }));
+}
+
+export function resolveStandardsForDesign(typeId, studyDesignId) {
+  const type = getResearchType(typeId);
+  if (!type) return [];
+  const designId = studyDesignId ?? type.defaultStudyDesignId;
+  if (!getStudyDesign(typeId, designId)) return [];
+  return STANDARDS.filter(standard => isStandardApplicable(standard, { typeId, studyDesignId: designId }));
+}
+
+export function getContextFieldIds(typeId, stageId, studyDesignId) {
+  const type = getResearchType(typeId);
+  const designId = studyDesignId ?? type?.defaultStudyDesignId;
+  if (!type || !getLifecycleStage(stageId) || !getStudyDesign(typeId, designId)) return [];
+  const fields = [];
+  if (["question", "evidence", "protocol", "proposal"].includes(stageId)) fields.push("registration");
+  if (["protocol", "ethics-governance", "conduct-quality"].includes(stageId)) fields.push("ethicsApproval");
+  if (["observational", "prediction", "ai-health-data"].includes(typeId)) fields.push("dataSharingPlan");
+  if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(designId)) {
+    fields.push("externalValidation");
+  }
+  return fields;
+}
+
+export function getAdaptiveFieldIds(typeId, stageId, studyDesignId) {
   const type = getResearchType(typeId);
   const stage = getLifecycleStage(stageId);
   if (!type || !stage) return [];
-  return [...new Set([...stage.commonFields, ...type.fields])];
+  return [...new Set([...stage.commonFields, ...type.fields, ...getContextFieldIds(typeId, stageId, studyDesignId)])];
 }

@@ -83,6 +83,46 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
+test("preserves persistent setup and structured design across transitions", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Researcher role").selectOption("postgraduate-student");
+  await page.getByLabel("Experience level").selectOption("advanced");
+  await page.getByLabel("Scientific field").fill("Neonatology");
+  await page.getByLabel("Country and institutional setting").fill("Thailand, university teaching hospital");
+  await page.getByLabel("Target output").selectOption("journal-manuscript");
+  await page.getByLabel("Citation style").selectOption("AMA");
+  await page.getByLabel("Research type").selectOption("medical-education");
+  await page.getByLabel("Study subtype or design").selectOption("education-observational");
+  await page.locator('[data-action="stage"][data-stage-id="reporting"]').click();
+
+  await expect(page.getByLabel("Researcher role")).toHaveValue("postgraduate-student");
+  await expect(page.getByLabel("Experience level")).toHaveValue("advanced");
+  await expect(page.getByLabel("Scientific field")).toHaveValue("Neonatology");
+  await expect(page.getByLabel("Country and institutional setting")).toHaveValue("Thailand, university teaching hospital");
+  await expect(page.getByLabel("Target output")).toHaveValue("journal-manuscript");
+  await expect(page.getByLabel("Citation style")).toHaveValue("AMA");
+  await expect(page.getByLabel("Study subtype or design")).toHaveValue("education-observational");
+});
+
+test("shows applicability-aware official standards links and review date", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research type").selectOption("evidence-review");
+  await page.getByLabel("Study subtype or design").selectOption("systematic-review");
+  await page.locator('[data-action="stage"][data-stage-id="reporting"]').click();
+
+  const standards = page.getByTestId("standards-summary");
+  await expect(standards).toContainText("Reviewed 2026-08-01");
+  await expect(standards).toContainText("PRISMA 2020");
+  await expect(standards).not.toContainText("PRISMA-ScR");
+  const officialLink = standards.getByRole("link", { name: /PRISMA 2020/i }).first();
+  await expect(officialLink).toHaveAttribute("href", /^https:\/\//);
+
+  await page.getByLabel("Study subtype or design").selectOption("scoping-review");
+  await expect(standards).toContainText("PRISMA-ScR");
+});
+
 test("serves all local assets beneath the GitHub Pages path prefix", async ({ page }) => {
   const requestPaths = [];
   const failedResponses = [];
@@ -125,7 +165,7 @@ test("serves all local assets beneath the GitHub Pages path prefix", async ({ pa
   expect(requestPaths.some(path => /^\/(?:vendor|src|favicon)/.test(path))).toBe(false);
 });
 
-test("copies, downloads, revokes the URL, and restores focus after Escape", async ({ page }) => {
+test("copies, downloads, revokes the URL, and restores focus after Escape", async ({ page, browserName }) => {
   await page.addInitScript(() => {
     window.revokedPromptUrls = [];
     const revoke = URL.revokeObjectURL.bind(URL);
@@ -134,13 +174,25 @@ test("copies, downloads, revokes the URL, and restores focus after Escape", asyn
       revoke(url);
     };
   });
-  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" });
+  if (browserName === "chromium") {
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: "http://127.0.0.1:4173" });
+  } else {
+    await page.addInitScript(() => {
+      window.copiedPromptText = "";
+      Object.defineProperty(Navigator.prototype, "clipboard", {
+        configurable: true,
+        get: () => ({ writeText: async text => { window.copiedPromptText = text; } }),
+      });
+    });
+  }
   await page.goto("/");
   await openPromptDrawer(page);
   await expect(page.getByTestId("prompt-output")).toContainText("CITATION AND TRACEABILITY");
   await page.getByRole("button", { name: "Copy prompt" }).click();
   await expect(page.locator("#appStatus")).toHaveText("Prompt copied.");
-  await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain("CITATION AND TRACEABILITY");
+  await expect.poll(() => page.evaluate(async isChromium => (
+    isChromium ? navigator.clipboard.readText() : window.copiedPromptText
+  ), browserName === "chromium")).toContain("CITATION AND TRACEABILITY");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download prompt" }).click();
   expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-question-/);
@@ -241,6 +293,50 @@ test("updates question readiness while the final required field remains focused"
   expect(await question.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
 });
 
+test("renders resolvable warnings and visible lifecycle readiness text with icons", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research type").selectOption("prediction");
+  await page.getByLabel("Study subtype or design").selectOption("prediction-external-validation");
+  await page.locator('[data-action="stage"][data-stage-id="protocol"]').click();
+
+  const warnings = page.getByTestId("preflight-warnings");
+  await expect(warnings).toContainText("Consider study registration");
+  await expect(warnings).toContainText("Consider ethics approval");
+  await expect(warnings).toContainText("Consider a data-sharing plan");
+  await expect(warnings).toContainText("Consider external validation");
+  await expect(page.getByLabel("Study registration")).toBeVisible();
+  await expect(page.getByLabel("Ethics approval")).toBeVisible();
+  await expect(page.getByLabel("Data sharing plan")).toBeVisible();
+  const externalValidation = page.getByRole("textbox", { name: "External validation", exact: true });
+  await expect(externalValidation).toBeVisible();
+
+  await page.getByLabel("Study registration").fill("Registered prospectively");
+  await page.getByLabel("Ethics approval").fill("Local determination pending verification");
+  await page.getByLabel("Data sharing plan").fill("Controlled access");
+  await externalValidation.fill("Independent hospital validation");
+  await expect(warnings).not.toContainText("Consider study registration");
+  await expect(warnings).not.toContainText("Consider ethics approval");
+  await expect(warnings).not.toContainText("Consider a data-sharing plan");
+  await expect(warnings).not.toContainText("Consider external validation");
+
+  const questionStage = page.locator('[data-action="stage"][data-stage-id="question"]');
+  await expect(questionStage.locator("[data-stage-status]")).toBeVisible();
+  await expect(questionStage.locator("img[data-stage-icon]")).toBeVisible();
+});
+
+test("focuses the first available upload or deidentification blocker", async ({ page }) => {
+  await page.goto("/");
+  await completePromptFields(page);
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByTestId("evidence-input")).toBeFocused();
+
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByLabel("I confirm these files are deidentified")).toBeFocused();
+});
+
 test("confirms incompatible stage changes and supports modal keyboard controls", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", error => pageErrors.push(error.message));
@@ -336,6 +432,69 @@ test("clearing uploaded mode during parsing cannot restore stale evidence", asyn
   expect(await page.evaluate(() => window.workspaceEvents.at(-1).state.sources)).toEqual([]);
 });
 
+test("removing an extracting source prevents its delayed result from returning", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await selectDelayedEvidence(page);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S1")).toContainText("Extracting text");
+
+  await page.getByRole("button", { name: "Remove S1" }).click();
+  await expect(page.getByTestId("source-S1")).toHaveCount(0);
+  await releaseDelayedEvidence(page);
+
+  await expect(page.getByTestId("source-S1")).toHaveCount(0);
+});
+
+test("changing and removing existing sources survives another delayed parse", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles([
+    "tests/fixtures/searchable-evidence.pdf",
+    "tests/fixtures/searchable-evidence.docx",
+  ]);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S2")).toContainText("Ready");
+
+  await selectDelayedEvidence(page);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S3")).toContainText("Extracting text");
+  await page.getByLabel("Include S1").uncheck();
+  await page.getByRole("button", { name: "Remove S2" }).click();
+  await releaseDelayedEvidence(page);
+
+  await expect(page.getByLabel("Include S1")).not.toBeChecked();
+  await expect(page.getByTestId("source-S1")).toContainText("searchable-evidence.pdf");
+  await expect(page.getByTestId("source-S2")).toContainText("delayed-evidence.txt");
+  await expect(page.getByTestId("source-S2")).toContainText("Ready");
+  await expect(page.getByText("searchable-evidence.docx")).toHaveCount(0);
+});
+
+test("parses valid peers and inventories rejected files in a mixed batch", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles([
+    { name: "evidence.csv", mimeType: "text/csv", buffer: Buffer.from("source,finding\nS1,Verified evidence source 2026\n") },
+    { name: "legacy.doc", mimeType: "application/msword", buffer: Buffer.from("legacy") },
+    { name: "unsupported.exe", mimeType: "application/octet-stream", buffer: Buffer.from("unsupported") },
+  ]);
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+
+  await expect(page.getByTestId("source-S1")).toContainText("evidence.csv");
+  await expect(page.getByTestId("source-S1")).toContainText("Ready");
+  await expect(page.getByTestId("source-S2")).toHaveAttribute("data-error-code", "legacy-doc-unsupported");
+  await expect(page.getByTestId("source-S3")).toHaveAttribute("data-error-code", "unsupported-file-type");
+  await expect(page.getByRole("button", { name: "Remove S2" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove S3" })).toBeVisible();
+});
+
 test("repeated Process activation cannot overlap or retain File records", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
@@ -389,6 +548,7 @@ test("an image-only PDF becomes an excluded error source", async ({ page }) => {
   const source = page.getByTestId("source-S1");
   await expect(source).toHaveAttribute("data-error-code", "image-only-pdf");
   await expect(source).toContainText("PDF contains no searchable text; OCR is not supported");
+  await expect(source).not.toContainText("image-only-pdf");
   await expect(page.getByLabel("Include S1")).toBeDisabled();
   await expect(page.getByLabel("Include S1")).not.toBeChecked();
 });
@@ -400,6 +560,30 @@ test("blocks an over-budget source without truncating it", async ({ page }) => {
   await page.getByLabel("Evidence budget").selectOption("25000");
   await page.evaluate(() => window.__TEST_ONLY__?.loadSyntheticEvidence("x".repeat(25001)));
   await expect(page.getByTestId("preflight-blocking")).toContainText("exceeds the selected evidence budget");
+  await expect(page.getByTestId("preflight-blocking")).toContainText("S1 (25,001 characters)");
+  await expect(page.getByTestId("source-S1")).toContainText("Type: TXT");
+  await expect(page.getByTestId("source-S1")).toContainText("Size: 24.4 KB");
+  await expect(page.getByTestId("source-S1")).toContainText("Extracted characters: 25,001");
+  await expect(page.getByTestId("source-S1")).toContainText("Budget contribution: 25,001 characters");
+});
+
+test("publishes source metadata without internal keys or evidence text", async ({ page }) => {
+  const secret = "private-event-evidence";
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.evaluate(() => {
+    window.publicWorkspaceEvents = [];
+    window.addEventListener("workspace:statechange", event => window.publicWorkspaceEvents.push(event.detail));
+  });
+  await page.evaluate(value => window.__TEST_ONLY__.loadSyntheticEvidence(value), secret);
+
+  const eventState = await page.evaluate(() => window.publicWorkspaceEvents.at(-1).state);
+  expect(eventState.sources[0]).toMatchObject({ id: "S1", status: "ready", extractedCharacters: secret.length });
+  expect(eventState.sources[0]).not.toHaveProperty("text");
+  expect(eventState.sources[0]).not.toHaveProperty("_key");
+  expect(eventState.sources[0]).not.toHaveProperty("file");
+  expect(JSON.stringify(eventState)).not.toContain(secret);
 });
 
 test("wraps uploaded source rows without mobile overflow", async ({ page }) => {

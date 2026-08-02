@@ -1,4 +1,11 @@
-import { calculateEvidenceBudget, createSourceRecord, renumberSources, validateFileBatch } from "../evidence/core.js";
+import {
+  calculateEvidenceBudget,
+  createSourceKey,
+  createSourceRecord,
+  getEvidenceBudgetContributors,
+  partitionFileBatch,
+  renumberSources,
+} from "../evidence/core.js";
 import { parseEvidenceFile } from "../evidence/parsers.js";
 import { t } from "../i18n.js";
 
@@ -21,6 +28,7 @@ function emit(container, type, detail = {}) {
 
 function createPendingSource(file) {
   return {
+    _key: createSourceKey(),
     filename: typeof file?.name === "string" ? file.name : "",
     size: file?.size,
     type: typeof file?.type === "string" ? file.type : "",
@@ -33,6 +41,34 @@ function createPendingSource(file) {
   };
 }
 
+function createRejectedSource(file, error) {
+  return {
+    _key: createSourceKey(),
+    filename: typeof file?.name === "string" ? file.name : "",
+    size: file?.size,
+    type: typeof file?.type === "string" ? file.type : "",
+    text: "",
+    warnings: [],
+    identifierHints: [],
+    included: false,
+    status: "excluded",
+    error,
+  };
+}
+
+function sourceType(source) {
+  const extension = /\.([^.]+)$/.exec(source.filename ?? "")?.[1];
+  if (extension) return extension.toUpperCase();
+  return source.type?.split("/").at(-1)?.toUpperCase() || "UNKNOWN";
+}
+
+function formatFileSize(size, locale) {
+  if (typeof size !== "number" || !Number.isFinite(size) || size < 0) return t(locale, "evidence.unknownSize");
+  if (size < 1024) return `${size.toLocaleString()} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function sourceRow(source, locale, container) {
   const included = element("input", {
     type: "checkbox",
@@ -40,26 +76,35 @@ function sourceRow(source, locale, container) {
     disabled: source.status !== "ready",
     "aria-label": t(locale, "evidence.includeSource", { source: source.id }),
   });
-  included.addEventListener("change", () => emit(container, "evidence:toggle", { id: source.id, included: included.checked }));
+  included.addEventListener("change", () => emit(container, "evidence:toggle", { sourceKey: source._key, included: included.checked }));
   const remove = element("button", {
     type: "button",
     className: "icon-button",
     "aria-label": t(locale, "evidence.removeSource", { source: source.id }),
     title: t(locale, "evidence.removeSource", { source: source.id }),
   }, [element("img", { src: "vendor/icons/trash-2.svg", alt: "" })]);
-  remove.addEventListener("click", () => emit(container, "evidence:remove", { id: source.id }));
-  const status = source.status === "error"
-    ? `${t(locale, "uploadStates.error")} (${source.error ?? "malformed-file"}: ${t(locale, `evidence.errors.${source.error ?? "malformed-file"}`)})`
+  remove.addEventListener("click", () => emit(container, "evidence:remove", { sourceKey: source._key }));
+  const status = ["error", "excluded"].includes(source.status)
+    ? `${t(locale, "uploadStates.error")}: ${t(locale, `evidence.errors.${source.error ?? "malformed-file"}`)}`
     : t(locale, `uploadStates.${source.status ?? "idle"}`);
   const warnings = [
     ...(source.warnings ?? []).map(warning => t(locale, `evidence.warnings.${warning}`)),
     ...(source.identifierHints?.length ? [t(locale, "evidence.identifierHint")] : []),
   ].filter(Boolean);
-  return element("li", { className: "evidence-source", dataset: { testid: `source-${source.id}`, ...(source.status === "error" ? { errorCode: source.error ?? "malformed-file" } : {}) } }, [
+  const extractedCharacters = typeof source.text === "string" ? source.text.length : 0;
+  const contribution = source.included && source.status === "ready" ? extractedCharacters : 0;
+  const metadata = [
+    t(locale, "evidence.sourceType", { value: sourceType(source) }),
+    t(locale, "evidence.sourceSize", { value: formatFileSize(source.size, locale) }),
+    t(locale, "evidence.extractedCharacters", { value: extractedCharacters.toLocaleString() }),
+    t(locale, "evidence.budgetContribution", { value: contribution.toLocaleString() }),
+  ];
+  return element("li", { className: "evidence-source", tabIndex: -1, dataset: { testid: `source-${source.id}`, ...(["error", "excluded"].includes(source.status) ? { errorCode: source.error ?? "malformed-file" } : {}) } }, [
     element("label", { className: "source-include" }, [included, element("span", { textContent: source.id })]),
     element("div", { className: "source-details" }, [
       element("strong", { textContent: source.filename }),
       element("span", { className: `source-status ${source.status}`, textContent: status }),
+      element("ul", { className: "source-metadata" }, metadata.map(value => element("li", { textContent: value }))),
       ...warnings.map(warning => element("small", { className: "source-warning", textContent: warning })),
     ]),
     remove,
@@ -67,21 +112,26 @@ function sourceRow(source, locale, container) {
 }
 
 export async function ingestFiles(files, state, dependencies, onProgress) {
-  const issues = validateFileBatch(files, state.sources);
-  if (issues.length) return { sources: state.sources, issues };
-  const pending = Array.from(files, createPendingSource);
-  const sources = [...state.sources, ...pending];
-  for (const source of pending) {
-    onProgress(renumberSources(sources));
+  const { accepted, rejected, issues } = partitionFileBatch(files, state.sources);
+  const pending = accepted.map(createPendingSource);
+  const excluded = rejected.map(({ file, code }) => createRejectedSource(file, code));
+  const owned = renumberSources([...state.sources, ...pending, ...excluded]).slice(state.sources.length);
+  onProgress(owned, { initial: true });
+  const finalSources = [...excluded];
+  for (const source of owned.filter(record => record.status === "extracting")) {
+    const file = source.file;
+    let finalSource;
     try {
-      const parsed = await parseEvidenceFile(source.file, dependencies);
-      Object.assign(source, createSourceRecord(source.file, parsed.text, parsed.warnings));
+      const parsed = await parseEvidenceFile(file, dependencies);
+      finalSource = { ...source, ...createSourceRecord(file, parsed.text, parsed.warnings) };
     } catch (error) {
-      Object.assign(source, { status: "error", text: "", included: false, error: error?.code ?? "malformed-file", warnings: [] });
+      finalSource = { ...source, status: "excluded", text: "", included: false, error: error?.code ?? "malformed-file", warnings: [] };
     }
-    delete source.file;
+    delete finalSource.file;
+    finalSources.push(finalSource);
+    onProgress([finalSource], { initial: false });
   }
-  return { sources: renumberSources(sources), issues: [] };
+  return { sources: finalSources, issues };
 }
 
 export function renderEvidenceWorkspace(container, state, { pendingFiles = [], issues = [], processing = false } = {}) {
@@ -108,7 +158,13 @@ export function renderEvidenceWorkspace(container, state, { pendingFiles = [], i
     })(),
   ]) : null;
   const issueItems = issues.map(issue => element("li", { textContent: t(locale, `evidence.errors.${issue.code}`) }));
-  if (budget.exceeded) issueItems.push(element("li", { textContent: t(locale, "evidence.budgetExceeded") }));
+  if (budget.exceeded) {
+    issueItems.push(element("li", { textContent: t(locale, "evidence.budgetExceeded") }));
+    const contributors = getEvidenceBudgetContributors(state.sources)
+      .map(({ sourceId, characters }) => `${sourceId} (${characters.toLocaleString()} ${locale === "th" ? "อักขระ" : "characters"})`)
+      .join(", ");
+    issueItems.push(element("li", { textContent: t(locale, "evidence.budgetContributors", { value: contributors }) }));
+  }
   const dropZone = element("label", { className: "evidence-drop-zone", htmlFor: "evidenceInput" }, [element("span", { textContent: t(locale, "evidence.addFiles") }), element("small", { textContent: t(locale, "evidence.localOnly") }), input]);
   dropZone.addEventListener("dragover", event => event.preventDefault());
   dropZone.addEventListener("drop", event => {

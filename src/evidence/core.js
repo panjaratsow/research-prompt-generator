@@ -21,6 +21,15 @@ export function calculateEvidenceBudget(sources, budgetChars) {
   };
 }
 
+export function getEvidenceBudgetContributors(sources) {
+  return Array.from(sources ?? [])
+    .filter(source => source.included && source.status === "ready")
+    .map(source => ({
+      sourceId: source.id,
+      characters: typeof source.text === "string" ? source.text.length : 0,
+    }));
+}
+
 export function escapeSourceText(text) {
   return text.replace(/<\s*\/?\s*source\b[^>]*>/gi, tag => {
     if (/^<\s*\//.test(tag)) return `&lt;${tag.slice(1, -1)}&gt;`;
@@ -44,43 +53,66 @@ function invalidSizeIssue(source, index, existing) {
   return { code: "invalid-file-size", index };
 }
 
+function countsTowardFileLimits(source) {
+  return !["error", "excluded"].includes(source?.status);
+}
+
+function rejectionCode(file) {
+  const extension = extensionFor(file?.name);
+  if (extension === "doc") return "legacy-doc-unsupported";
+  if (!FILE_LIMITS.allowedExtensions.includes(extension)) return "unsupported-file-type";
+  if (!hasValidFileSize(file?.size)) return "invalid-file-size";
+  if (file.size > FILE_LIMITS.maxFileBytes) return "file-too-large";
+  return "";
+}
+
+export function partitionFileBatch(files, existingSources) {
+  const accepted = [];
+  const rejected = [];
+  const issues = [];
+  const existing = Array.from(existingSources ?? []);
+  let retainedCount = existing.length;
+  let acceptedBytes = existing
+    .filter(countsTowardFileLimits)
+    .filter(source => hasValidFileSize(source.size))
+    .reduce((sum, source) => sum + source.size, 0);
+
+  for (const file of Array.from(files ?? [])) {
+    if (retainedCount >= FILE_LIMITS.maxFiles) {
+      if (!issues.some(issue => issue.code === "too-many-files")) issues.push({ code: "too-many-files" });
+      continue;
+    }
+    retainedCount += 1;
+    const fileError = rejectionCode(file);
+    if (fileError) {
+      rejected.push({ file, code: fileError });
+      continue;
+    }
+    if (acceptedBytes + file.size > FILE_LIMITS.maxTotalBytes) {
+      rejected.push({ file, code: "total-size-too-large" });
+      continue;
+    }
+    accepted.push(file);
+    acceptedBytes += file.size;
+  }
+
+  return { accepted, rejected, issues };
+}
+
 export function validateFileBatch(files, existingSources) {
   const nextFiles = Array.from(files ?? []);
   const existing = Array.from(existingSources ?? []);
-  const issues = [];
-
-  if (existing.length + nextFiles.length > FILE_LIMITS.maxFiles) {
-    issues.push({ code: "too-many-files" });
-  }
-
-  for (const [index, file] of nextFiles.entries()) {
-    const extension = extensionFor(file.name);
-    if (extension === "doc") {
-      issues.push({ code: "legacy-doc-unsupported", index });
-    } else if (!FILE_LIMITS.allowedExtensions.includes(extension)) {
-      issues.push({ code: "unsupported-file-type", index });
-    }
-    if (!hasValidFileSize(file.size)) {
-      issues.push(invalidSizeIssue(file, index, false));
-    } else if (file.size > FILE_LIMITS.maxFileBytes) {
-      issues.push({ code: "file-too-large", index });
-    }
-  }
-
-  const sources = [...existing, ...nextFiles];
+  const partition = partitionFileBatch(nextFiles, existing);
+  const issues = [
+    ...partition.issues,
+    ...partition.rejected.map(({ file, code }) => ({ code, index: nextFiles.indexOf(file) })),
+  ];
   const invalidExisting = existing
     .map((source, index) => ({ source, index }))
     .filter(({ source }) => !hasValidFileSize(source.size));
   for (const { source, index } of invalidExisting) {
     issues.push(invalidSizeIssue(source, index, true));
   }
-  if (!invalidExisting.length && nextFiles.every(file => hasValidFileSize(file.size))) {
-    const totalBytes = sources.reduce((sum, source) => sum + source.size, 0);
-    if (totalBytes > FILE_LIMITS.maxTotalBytes) {
-      issues.push({ code: "total-size-too-large" });
-    }
-  }
-
   return issues;
 }
 
@@ -119,6 +151,25 @@ export function createSourceRecord(file, text, warnings) {
   };
 }
 
+let sourceKeySequence = 0;
+
+export function createSourceKey() {
+  sourceKeySequence += 1;
+  return `source-${sourceKeySequence}`;
+}
+
 export function renumberSources(sources) {
-  return Array.from(sources ?? [], (source, index) => ({ ...source, id: `S${index + 1}` }));
+  return Array.from(sources ?? [], (source, index) => ({
+    ...source,
+    _key: typeof source?._key === "string" && source._key ? source._key : createSourceKey(),
+    id: `S${index + 1}`,
+  }));
+}
+
+export function mergeSourceUpdates(currentSources, updates) {
+  const byKey = new Map(Array.from(updates ?? [], update => [update._key, update]));
+  return Array.from(currentSources ?? [], source => {
+    const update = byKey.get(source._key);
+    return update ? { ...source, ...update, _key: source._key, id: source.id } : source;
+  });
 }

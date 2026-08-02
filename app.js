@@ -1,6 +1,7 @@
 import {
-  createInitialState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
-  setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType, setStage, replaceSources,
+  createInitialState, createPublicWorkspaceState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
+  setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType,
+  setSetupField, setStage, setStudyDesign, replaceSources,
 } from "./src/state.js";
 import { getAdaptiveFieldIds, resolveStandards } from "./src/catalog/index.js";
 import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
@@ -8,7 +9,7 @@ import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
 import { clearConfirmation, focusFirstBlockingIssue, renderConfirmation, renderValidation, renderWorkspace, updateLifecycleReadiness } from "./src/ui/render.js";
 import { PARSER_DEPENDENCIES } from "./src/evidence/browser-adapters.js";
-import { createSourceRecord, renumberSources } from "./src/evidence/core.js";
+import { createSourceRecord, mergeSourceUpdates, renumberSources } from "./src/evidence/core.js";
 import { ingestFiles, renderEvidenceWorkspace } from "./src/ui/evidence-workspace.js";
 import { closePromptDrawer, copyPrompt, downloadPrompt, openPromptDrawer } from "./src/ui/prompt-drawer.js";
 
@@ -27,7 +28,7 @@ function render() {
     renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state, { pendingFiles, issues: evidenceIssues, processing: evidenceProcessing });
   }
 }
-function publish(action) { window.dispatchEvent(new CustomEvent("workspace:statechange", { detail: { action, state: structuredClone(state) } })); }
+function publish(action) { window.dispatchEvent(new CustomEvent("workspace:statechange", { detail: { action, state: createPublicWorkspaceState(state) } })); }
 function update(next, action, shouldRender = true) { state = next; if (shouldRender) render(); publish(action); }
 function cancelEvidenceProcessing() {
   evidenceOperationGeneration += 1;
@@ -105,21 +106,24 @@ async function processEvidenceFiles() {
   root.querySelector("[data-action='evidence-process']").disabled = true;
   const isCurrent = () => evidenceProcessing && generation === evidenceOperationGeneration;
   try {
-    const result = await ingestFiles(files, state, PARSER_DEPENDENCIES, sources => {
+    const result = await ingestFiles(files, state, PARSER_DEPENDENCIES, (sourceUpdates, progress) => {
       if (isCurrent()) {
+        const sources = progress.initial
+          ? renumberSources([...state.sources, ...sourceUpdates.filter(update => !state.sources.some(source => source._key === update._key))])
+          : mergeSourceUpdates(state.sources, sourceUpdates);
         update(replaceSources(state, sources), "evidence-progress");
-        const extracting = sources.find(source => source.status === "extracting");
+        const extracting = state.sources.find(source => source.status === "extracting");
         if (extracting) announce(t(state.interfaceLocale, "status.extracting", { sourceId: extracting.id }));
       }
     });
     if (!isCurrent()) return;
     evidenceIssues = result.issues;
-    pendingFiles = result.issues.length ? files : [];
+    pendingFiles = [];
     evidenceProcessing = false;
-    update(replaceSources(state, result.sources), "evidence-process");
+    update(state, "evidence-process");
     announce(t(state.interfaceLocale, "status.evidenceReady", {
-      ready: result.sources.filter(source => source.status === "ready").length,
-      error: result.sources.filter(source => source.status === "error").length,
+      ready: state.sources.filter(source => source.status === "ready").length,
+      error: state.sources.filter(source => ["error", "excluded"].includes(source.status)).length,
     }));
   } finally {
     if (generation === evidenceOperationGeneration && evidenceProcessing) {
@@ -130,7 +134,7 @@ async function processEvidenceFiles() {
 }
 
 function requestStage(nextId) {
-  const allowed = new Set(getAdaptiveFieldIds(state.researchTypeId, nextId));
+  const allowed = new Set(getAdaptiveFieldIds(state.researchTypeId, nextId, state.studyDesignId));
   const incompatible = Object.keys(state.fields).filter(id => !allowed.has(id));
   if (incompatible.length) beginConfirmation("stage", nextId, incompatible);
   else update(setStage(state, nextId), "set-stage");
@@ -144,11 +148,23 @@ root.addEventListener("input", event => {
     renderValidation(root, preflight, state.interfaceLocale);
     updateLifecycleReadiness(root, preflight, state.interfaceLocale);
   }
+  const setupField = event.target.dataset.setupField;
+  if (setupField && event.target.tagName !== "SELECT") {
+    update(setSetupField(state, setupField, event.target.value), "set-setup-field", false);
+  }
 });
 
 root.addEventListener("change", event => {
   const { target } = event;
   if (target.dataset.fieldId) { publish("commit-field"); return; }
+  if (target.dataset.action === "setup-field") {
+    update(
+      setSetupField(state, target.dataset.setupField, target.value),
+      "set-setup-field",
+      target.tagName === "SELECT"
+    );
+    return;
+  }
   if (target.id === "interfaceLanguage") {
     update(setInterfaceLocale(state, target.value), "set-interface-locale");
     document.documentElement.lang = state.interfaceLocale;
@@ -156,6 +172,7 @@ root.addEventListener("change", event => {
   }
   if (target.dataset.action === "evidence-mode") requestEvidenceMode(target.value);
   if (target.dataset.action === "output-language") update(setOutputLanguage(state, target.value), "set-output-language");
+  if (target.dataset.action === "study-design") update(setStudyDesign(state, target.value), "set-study-design");
   if (target.dataset.action === "deidentification") update(setDeidentificationConfirmed(state, target.checked), "set-deidentification");
   if (target.dataset.action === "research-type") {
     const transition = setResearchType(state, target.value);
@@ -176,11 +193,11 @@ root.addEventListener("evidence:confirm-deidentified", event => updateDeidentifi
 root.addEventListener("evidence:process", () => { void processEvidenceFiles(); });
 root.addEventListener("evidence:set-budget", event => update(setEvidenceBudget(state, event.detail.budget), "set-evidence-budget"));
 root.addEventListener("evidence:toggle", event => {
-  const sources = state.sources.map(source => source.id === event.detail.id ? { ...source, included: event.detail.included } : source);
+  const sources = state.sources.map(source => source._key === event.detail.sourceKey ? { ...source, included: event.detail.included } : source);
   update(replaceSources(state, sources), "evidence-toggle");
 });
 root.addEventListener("evidence:remove", event => {
-  const sources = renumberSources(state.sources.filter(source => source.id !== event.detail.id));
+  const sources = renumberSources(state.sources.filter(source => source._key !== event.detail.sourceKey));
   update(replaceSources(state, sources), "evidence-remove");
 });
 root.addEventListener("prompt:closed", () => {
@@ -224,7 +241,7 @@ root.addEventListener("click", event => {
     openPromptDrawer(root, prompt, trigger, {
       locale: state.interfaceLocale,
       selectedEvidenceCount: state.sources.filter(source => source.included && source.status === "ready").length,
-      standards: resolveStandards(state.researchTypeId, state.stageId),
+      standards: resolveStandards(state.researchTypeId, state.stageId, state.studyDesignId),
       qualityChecklist: buildQualityChecklist(state),
     });
   }

@@ -1,4 +1,13 @@
-import { LIFECYCLE_STAGES, RESEARCH_TYPES, STANDARDS, getAdaptiveFieldIds, resolveStandards } from "../catalog/index.js";
+import {
+  LIFECYCLE_STAGES,
+  RESEARCH_TYPES,
+  STANDARDS_REVIEWED_ON,
+  getAdaptiveFieldIds,
+  getStudyDesignOptions,
+  resolveStandards,
+  resolveStandardsForDesign,
+} from "../catalog/index.js";
+import { CITATION_STYLES, EXPERIENCE_LEVELS, RESEARCHER_ROLES, TARGET_OUTPUTS } from "../state.js";
 import { getRequiredFieldIds } from "../validation.js";
 import { t } from "../i18n.js";
 import { renderEvidenceWorkspace } from "./evidence-workspace.js";
@@ -35,21 +44,67 @@ function controlLabel(label, control) {
   return element("label", { className: "control-label", textContent: label }, [control]);
 }
 
+function setupSelect(locale, labelKey, fieldId, value, values, optionKey) {
+  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value)));
+  return controlLabel(t(locale, labelKey), control);
+}
+
+function setupText(locale, labelKey, fieldId, value) {
+  return controlLabel(t(locale, labelKey), element("input", {
+    type: "text",
+    value,
+    dataset: { action: "setup-field", setupField: fieldId },
+  }));
+}
+
+function standardList(standards, locale) {
+  return element("ul", { className: "summary-list" }, standards.map(standard => element("li", {}, [
+    element("a", {
+      href: standard.officialUrl,
+      target: "_blank",
+      rel: "noopener noreferrer",
+      textContent: standard.version,
+      "aria-label": t(locale, "officialSource", { standard: standard.version }),
+    }),
+    element("small", { textContent: standard.name }),
+  ])));
+}
+
 export function focusFirstBlockingIssue(preflight) {
-  const issue = preflight.blocking.find(item => item.fieldId);
-  const control = issue && document.querySelector(`[data-field-id="${issue.fieldId}"] input, [data-field-id="${issue.fieldId}"] textarea, [data-field-id="${issue.fieldId}"] select`);
-  control?.focus();
-  return Boolean(control);
+  for (const issue of preflight.blocking) {
+    const byId = issue.fieldId ? document.getElementById(issue.fieldId) : null;
+    const byField = issue.fieldId
+      ? document.querySelector(`[data-field-id="${issue.fieldId}"] input, [data-field-id="${issue.fieldId}"] textarea, [data-field-id="${issue.fieldId}"] select`)
+      : null;
+    const bySource = issue.sourceId ? document.querySelector(`[data-testid="source-${issue.sourceId}"]`) : null;
+    const control = byId ?? byField ?? bySource;
+    if (control && !control.disabled) {
+      control.focus();
+      return true;
+    }
+  }
+  return false;
 }
 
 export function renderValidation(root, preflight, locale) {
   const summary = root.querySelector("[data-testid='validation-summary']");
   if (!summary) return;
-  const issues = preflight.blocking;
+  const blockers = preflight.blocking;
+  const warnings = preflight.warnings;
   summary.replaceChildren(
-    element("h3", { textContent: t(locale, "validationHeading") }),
-    issues.length ? element("ul", { className: "validation-list" }, issues.map(issue => element("li", { textContent: t(locale, issue.messageKey) }))) : element("p", { className: "empty-note", textContent: t(locale, "noIssues") })
+    element("section", { dataset: { testid: "preflight-blockers" } }, [
+      element("h3", { textContent: t(locale, "validationHeading") }),
+      blockers.length ? element("ul", { className: "validation-list" }, blockers.map(issue => element("li", { textContent: t(locale, issue.messageKey) }))) : element("p", { className: "empty-note", textContent: t(locale, "noIssues") }),
+    ]),
+    element("section", { className: "validation-warnings", dataset: { testid: "preflight-warnings" } }, [
+      element("h3", { textContent: t(locale, "warningsHeading") }),
+      warnings.length ? element("ul", { className: "warning-list" }, warnings.map(issue => element("li", { textContent: t(locale, issue.messageKey) }))) : element("p", { className: "empty-note", textContent: "-" }),
+    ])
   );
+}
+
+function readinessIcon(readiness) {
+  return readiness === "ready" ? "vendor/icons/circle-check.svg" : "vendor/icons/triangle-alert.svg";
 }
 
 export function updateLifecycleReadiness(root, preflight, locale) {
@@ -57,7 +112,9 @@ export function updateLifecycleReadiness(root, preflight, locale) {
     const readiness = preflight.readinessByStage[button.dataset.stageId] ?? "incomplete";
     const statusKey = `stage${readiness[0].toUpperCase()}${readiness.slice(1)}`;
     const stageLabel = t(locale, `stages.${button.dataset.stageId}`);
-    button.querySelector(".stage-dot").className = `stage-dot ${readiness}`;
+    const icon = button.querySelector("[data-stage-icon]");
+    icon.src = readinessIcon(readiness);
+    icon.className = `stage-icon ${readiness}`;
     button.querySelector("[data-stage-status]").textContent = t(locale, statusKey);
     button.setAttribute("aria-label", `${stageLabel}: ${t(locale, statusKey)}`);
   });
@@ -72,23 +129,43 @@ export function renderWorkspace(root, state, preflight) {
   reset.title = t(locale, "actions.reset");
 
   const researchType = element("select", { id: "researchType", dataset: { action: "research-type" } }, RESEARCH_TYPES.map(type => option(type.id, t(locale, `researchTypes.${type.id}`), type.id === state.researchTypeId)));
+  const studyDesign = element("select", { dataset: { action: "study-design" } }, getStudyDesignOptions(state.researchTypeId).map(design => option(design.id, t(locale, `studyDesigns.${design.id}`), design.id === state.studyDesignId)));
   const evidenceMode = element("select", { dataset: { action: "evidence-mode" } }, ["planning", "uploaded", "web-research"].map(id => option(id, t(locale, `evidenceModes.${id}`), id === state.evidenceMode)));
   const outputLanguage = element("select", { dataset: { action: "output-language" } }, ["thai", "english", "bilingual"].map(id => option(id, t(locale, `outputLanguages.${id}`), id === state.outputLanguage)));
-  const controls = [controlLabel(t(locale, "researchType"), researchType), controlLabel(t(locale, "evidenceMode"), evidenceMode), controlLabel(t(locale, "outputLanguage"), outputLanguage)];
+  const controls = [
+    controlLabel(t(locale, "researchType"), researchType),
+    controlLabel(t(locale, "studyDesign"), studyDesign),
+    setupSelect(locale, "researcherRole", "researcherRole", state.researcherRole, RESEARCHER_ROLES, "researcherRoles"),
+    setupSelect(locale, "experienceLevel", "experienceLevel", state.experienceLevel, EXPERIENCE_LEVELS, "experienceLevels"),
+    setupText(locale, "scientificField", "scientificField", state.scientificField),
+    setupText(locale, "institutionSetting", "institutionSetting", state.institutionSetting),
+    setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs"),
+    setupSelect(locale, "citationStyle", "citationStyle", state.citationStyle, CITATION_STYLES, "citationStyles"),
+    controlLabel(t(locale, "evidenceMode"), evidenceMode),
+    controlLabel(t(locale, "outputLanguage"), outputLanguage),
+  ];
   root.querySelector("#setupBar").replaceChildren(element("div", { className: "panel-kicker", textContent: t(locale, "setup") }), element("div", { className: "setup-controls" }, controls));
 
   root.querySelector("#lifecycleRail").replaceChildren(
     element("div", { className: "rail-heading", textContent: t(locale, "lifecycle") }),
-    ...LIFECYCLE_STAGES.map(stage => element("button", {
+    ...LIFECYCLE_STAGES.map(stage => {
+      const readiness = preflight.readinessByStage[stage.id] ?? "incomplete";
+      const statusKey = `stage${readiness[0].toUpperCase()}${readiness.slice(1)}`;
+      return element("button", {
       type: "button",
       className: `stage-button${stage.id === state.stageId ? " active" : ""}`,
       dataset: { action: "stage", stageId: stage.id },
       "aria-current": stage.id === state.stageId ? "step" : null,
-    }, [element("span", { className: `stage-dot ${preflight.readinessByStage[stage.id]}` }), element("span", { className: "stage-label", textContent: t(locale, `stages.${stage.id}`) }), element("span", { className: "sr-only", dataset: { stageStatus: "" } })]))
+      }, [
+        element("img", { className: `stage-icon ${readiness}`, src: readinessIcon(readiness), alt: "", dataset: { stageIcon: "" } }),
+        element("span", { className: "stage-label", textContent: t(locale, `stages.${stage.id}`) }),
+        element("span", { className: "stage-status", textContent: t(locale, statusKey), dataset: { stageStatus: "" } }),
+      ]);
+    })
   );
   updateLifecycleReadiness(root, preflight, locale);
 
-  const fieldIds = getAdaptiveFieldIds(state.researchTypeId, state.stageId);
+  const fieldIds = getAdaptiveFieldIds(state.researchTypeId, state.stageId, state.studyDesignId);
   const required = new Set(getRequiredFieldIds(state.researchTypeId, state.stageId));
   const form = element("form", { className: "adaptive-form", noValidate: true });
   fieldIds.forEach(id => form.append(fieldControl(id, state, required.has(id), locale)));
@@ -108,11 +185,15 @@ export function renderWorkspace(root, state, preflight) {
   renderValidation(root, preflight, locale);
   if (state.evidenceMode === "uploaded") renderEvidenceWorkspace(root.querySelector("#evidenceWorkspaceRoot"), state);
 
-  const applicable = resolveStandards(state.researchTypeId, state.stageId);
-  const typeStandards = STANDARDS.filter(standard => standard.researchTypes.includes(state.researchTypeId));
+  const applicable = resolveStandards(state.researchTypeId, state.stageId, state.studyDesignId);
+  const typeStandards = resolveStandardsForDesign(state.researchTypeId, state.studyDesignId);
   root.querySelector("#standardsSummary").replaceChildren(
-    element("section", { className: "summary-section" }, [element("h2", { textContent: t(locale, "standards") }), element("ul", { className: "summary-list" }, typeStandards.map(standard => element("li", { textContent: standard.version }, [element("small", { textContent: standard.name })]))) ]),
-    element("section", { className: "summary-section" }, [element("h2", { textContent: t(locale, "stageMatch") }), applicable.length ? element("ul", { className: "summary-list" }, applicable.map(standard => element("li", { textContent: standard.version }))) : element("p", { className: "empty-note", textContent: t(locale, "noStageStandard") })])
+    element("section", { className: "summary-section" }, [
+      element("h2", { textContent: t(locale, "standards") }),
+      element("p", { className: "standards-review-date", textContent: t(locale, "standardsReviewed", { date: STANDARDS_REVIEWED_ON }) }),
+      standardList(typeStandards, locale),
+    ]),
+    element("section", { className: "summary-section" }, [element("h2", { textContent: t(locale, "stageMatch") }), applicable.length ? standardList(applicable, locale) : element("p", { className: "empty-note", textContent: t(locale, "noStageStandard") })])
   );
   if (state.promptDrawer !== "open") root.querySelector("#promptDrawerRoot").replaceChildren(element("div", { className: "drawer-placeholder", textContent: t(locale, "promptPlaceholder") }));
 }

@@ -2,36 +2,74 @@ import {
   RESEARCH_TYPE_IDS,
   STAGE_IDS,
   getAdaptiveFieldIds,
+  getResearchType,
+  getStudyDesign,
 } from "./catalog/index.js";
+
+export const RESEARCHER_ROLES = Object.freeze([
+  "postgraduate-student", "research-fellow", "faculty-researcher",
+  "clinician-investigator", "health-professional", "statistician",
+]);
+export const EXPERIENCE_LEVELS = Object.freeze(["novice", "intermediate", "advanced"]);
+export const TARGET_OUTPUTS = Object.freeze([
+  "stage-appropriate-deliverable", "research-question", "evidence-synthesis",
+  "study-protocol", "ethics-governance-plan", "analysis-plan", "grant-proposal",
+  "journal-manuscript", "dissemination-plan",
+]);
+export const CITATION_STYLES = Object.freeze(["Vancouver", "AMA", "APA 7", "None"]);
 
 const INTERFACE_LOCALES = ["th", "en"];
 const EVIDENCE_MODES = ["uploaded", "web-research", "planning"];
 const OUTPUT_LANGUAGES = ["thai", "english", "bilingual"];
 const EVIDENCE_BUDGETS = [25000, 60000, 120000];
 const PROMPT_DRAWER_STATES = ["closed", "open"];
+const SETUP_FIELDS = new Set([
+  "researcherRole", "experienceLevel", "scientificField",
+  "institutionSetting", "targetOutput", "citationStyle",
+]);
+const SETUP_ENUMS = {
+  researcherRole: RESEARCHER_ROLES,
+  experienceLevel: EXPERIENCE_LEVELS,
+  targetOutput: TARGET_OUTPUTS,
+  citationStyle: CITATION_STYLES,
+};
 
 function assertEnum(value, values) {
-  if (!values.includes(value)) {
-    throw new RangeError(`Unknown value: ${value}`);
-  }
+  if (!values.includes(value)) throw new RangeError(`Unknown value: ${value}`);
 }
 
-function filterCompatibleFields(fields, typeId, stageId) {
-  const allowed = new Set(getAdaptiveFieldIds(typeId, stageId));
+function filterCompatibleFields(fields, typeId, stageId, studyDesignId) {
+  const allowed = new Set(getAdaptiveFieldIds(typeId, stageId, studyDesignId));
   return Object.fromEntries(Object.entries(fields).filter(([id]) => allowed.has(id)));
 }
 
-function cloneState(state) {
-  return structuredClone(state);
+function cloneFieldValue(value) {
+  return Array.isArray(value) ? [...value] : value;
+}
+
+function cloneSource(source) {
+  return {
+    ...source,
+    ...(Array.isArray(source.warnings) ? { warnings: [...source.warnings] } : {}),
+    ...(Array.isArray(source.identifierHints) ? { identifierHints: [...source.identifierHints] } : {}),
+  };
 }
 
 export function createInitialState() {
+  const researchType = getResearchType("observational");
   return {
-    researchTypeId: "observational",
+    researchTypeId: researchType.id,
+    studyDesignId: researchType.defaultStudyDesignId,
     stageId: "question",
     interfaceLocale: "th",
     evidenceMode: "planning",
     outputLanguage: "bilingual",
+    researcherRole: "faculty-researcher",
+    experienceLevel: "intermediate",
+    scientificField: "",
+    institutionSetting: "Thailand; medical university or teaching hospital",
+    targetOutput: "stage-appropriate-deliverable",
+    citationStyle: "Vancouver",
     evidenceBudget: 60000,
     deidentificationConfirmed: false,
     fields: {},
@@ -41,66 +79,105 @@ export function createInitialState() {
 }
 
 export function setField(state, fieldId, value) {
-  const next = cloneState(state);
-  next.fields[fieldId] = structuredClone(value);
-  return next;
+  return { ...state, fields: { ...state.fields, [fieldId]: cloneFieldValue(value) } };
+}
+
+export function setSetupField(state, fieldId, value) {
+  if (!SETUP_FIELDS.has(fieldId)) throw new RangeError(`Unknown setup field: ${fieldId}`);
+  if (SETUP_ENUMS[fieldId]) assertEnum(value, SETUP_ENUMS[fieldId]);
+  return { ...state, [fieldId]: value };
+}
+
+export function setStudyDesign(state, studyDesignId) {
+  if (!getStudyDesign(state.researchTypeId, studyDesignId)) {
+    throw new RangeError(`Unknown study design for ${state.researchTypeId}: ${studyDesignId}`);
+  }
+  return {
+    ...state,
+    studyDesignId,
+    fields: filterCompatibleFields(state.fields, state.researchTypeId, state.stageId, studyDesignId),
+  };
 }
 
 export function setResearchType(state, nextTypeId, confirmed = false) {
   assertEnum(nextTypeId, RESEARCH_TYPE_IDS);
-
-  const allowed = new Set(getAdaptiveFieldIds(nextTypeId, state.stageId));
+  const nextType = getResearchType(nextTypeId);
+  const allowed = new Set(getAdaptiveFieldIds(nextTypeId, state.stageId, nextType.defaultStudyDesignId));
   const incompatible = Object.keys(state.fields).filter(id => !allowed.has(id));
   if (incompatible.length && !confirmed) {
     return { state, needsConfirmation: true, incompatible };
   }
 
-  const next = cloneState(state);
-  next.researchTypeId = nextTypeId;
-  next.fields = filterCompatibleFields(state.fields, nextTypeId, state.stageId);
-  return { state: next, needsConfirmation: false, incompatible };
+  return {
+    state: {
+      ...state,
+      researchTypeId: nextTypeId,
+      studyDesignId: nextType.defaultStudyDesignId,
+      fields: filterCompatibleFields(state.fields, nextTypeId, state.stageId, nextType.defaultStudyDesignId),
+    },
+    needsConfirmation: false,
+    incompatible,
+  };
 }
 
 export function setStage(state, nextStageId) {
   assertEnum(nextStageId, STAGE_IDS);
-
-  const next = cloneState(state);
-  next.stageId = nextStageId;
-  next.fields = filterCompatibleFields(state.fields, state.researchTypeId, nextStageId);
-  return next;
+  return {
+    ...state,
+    stageId: nextStageId,
+    fields: filterCompatibleFields(state.fields, state.researchTypeId, nextStageId, state.studyDesignId),
+  };
 }
 
 export function setInterfaceLocale(state, locale) {
   assertEnum(locale, INTERFACE_LOCALES);
-  return { ...cloneState(state), interfaceLocale: locale };
+  return { ...state, interfaceLocale: locale };
 }
 
 export function setEvidenceMode(state, mode) {
   assertEnum(mode, EVIDENCE_MODES);
-  return { ...cloneState(state), evidenceMode: mode };
+  return { ...state, evidenceMode: mode };
 }
 
 export function setOutputLanguage(state, language) {
   assertEnum(language, OUTPUT_LANGUAGES);
-  return { ...cloneState(state), outputLanguage: language };
+  return { ...state, outputLanguage: language };
 }
 
 export function setEvidenceBudget(state, budget) {
   assertEnum(budget, EVIDENCE_BUDGETS);
-  return { ...cloneState(state), evidenceBudget: budget };
+  return { ...state, evidenceBudget: budget };
 }
 
 export function setDeidentificationConfirmed(state, confirmed) {
-  return { ...cloneState(state), deidentificationConfirmed: Boolean(confirmed) };
+  return { ...state, deidentificationConfirmed: Boolean(confirmed) };
 }
 
 export function setPromptDrawer(state, value) {
   assertEnum(value, PROMPT_DRAWER_STATES);
-  return { ...cloneState(state), promptDrawer: value };
+  return { ...state, promptDrawer: value };
 }
 
 export function replaceSources(state, sources) {
-  return { ...cloneState(state), sources: structuredClone(sources) };
+  return { ...state, sources: Array.from(sources ?? [], cloneSource) };
+}
+
+export function createPublicWorkspaceState(state) {
+  return {
+    ...state,
+    fields: Object.fromEntries(Object.entries(state.fields ?? {}).map(([id, value]) => [id, cloneFieldValue(value)])),
+    sources: Array.from(state.sources ?? [], source => ({
+      id: source.id ?? "",
+      filename: source.filename ?? "",
+      type: source.type ?? "",
+      size: source.size,
+      status: source.status ?? "",
+      included: Boolean(source.included),
+      warnings: Array.isArray(source.warnings) ? [...source.warnings] : [],
+      error: source.error ?? "",
+      extractedCharacters: typeof source.text === "string" ? source.text.length : 0,
+    })),
+  };
 }
 
 export function resetState() {

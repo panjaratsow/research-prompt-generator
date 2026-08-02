@@ -46,14 +46,49 @@ describe("evidence parsers", () => {
     expect(result.text).toContain("Verified evidence source 2026");
   });
 
-  it("decodes plain evidence formats", async () => {
+  it("decodes deliberate valid UTF-8", async () => {
     expect((await parsePlainText(textBytes.buffer)).text).toContain("Verified evidence source 2026");
   });
 
-  it.each(["txt", "md", "csv", "ris", "bib"])("dispatches lowercase %s files to the plain text parser", async extension => {
+  it.each(["txt", "md"])("dispatches lowercase %s files to the plain text parser", async extension => {
     const result = await parseEvidenceFile(file(`evidence.${extension}`), {});
 
     expect(result).toEqual({ text: "Verified evidence source 2026", warnings: [] });
+  });
+
+  it.each([
+    ["csv", "tests/fixtures/evidence.csv"],
+    ["ris", "tests/fixtures/evidence.ris"],
+    ["bib", "tests/fixtures/evidence.bib"],
+  ])("validates and extracts structured .%s text", async (extension, fixturePath) => {
+    const bytes = await readFile(fixturePath);
+    const result = await parseEvidenceFile(file(`evidence.${extension}`, bytes), {});
+
+    expect(result.text).toContain("Verified evidence source 2026");
+  });
+
+  it.each([
+    ["empty.txt", "empty-text"],
+    ["invalid-utf8.txt", "invalid-utf8"],
+    ["malformed.csv", "malformed-csv"],
+    ["malformed.ris", "malformed-ris"],
+    ["malformed.bib", "malformed-bib"],
+  ])("rejects %s with a stable parser code", async (fixtureName, code) => {
+    const bytes = await readFile(`tests/fixtures/${fixtureName}`);
+
+    await expect(parseEvidenceFile(file(fixtureName, bytes), {})).rejects.toEqual({ code });
+  });
+
+  it("rejects a real image-only DOCX without inventing OCR text", async () => {
+    const bytes = await readFile("tests/fixtures/image-only.docx");
+
+    await expect(parseEvidenceFile(file("image-only.docx", bytes), { mammoth })).rejects.toEqual({ code: "image-only-docx" });
+  });
+
+  it("distinguishes an encrypted OOXML container from a malformed DOCX", async () => {
+    const bytes = await readFile("tests/fixtures/encrypted-ooxml.docx");
+
+    await expect(parseEvidenceFile(file("encrypted.docx", bytes), { mammoth })).rejects.toEqual({ code: "encrypted-docx" });
   });
 
   it("dispatches PDF files with configured parser resources", async () => {

@@ -107,7 +107,7 @@ describe("preflight validation", () => {
 
   it("adds context-specific readiness warnings without document text", () => {
     const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", stageId: "protocol" },
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "protocol" },
       {
         topic: "Risk model",
         problemStatement: "Clinical risk stratification is inconsistent",
@@ -127,6 +127,43 @@ describe("preflight validation", () => {
       expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
     );
     expect(JSON.stringify(result)).not.toContain("Clinical risk stratification is inconsistent");
+  });
+
+  it("removes contextual warnings when their rendered controls are completed", () => {
+    const state = withFields(
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "protocol" },
+      {
+        registration: "Registered prospectively",
+        ethicsApproval: "Local determination pending verification",
+        dataSharingPlan: "Controlled access",
+        externalValidation: "Independent hospital validation",
+      }
+    );
+
+    expect(validateState(state).warnings.map(issue => issue.code)).not.toEqual(
+      expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
+    );
+  });
+
+  it("maps upload and budget blockers to focusable evidence controls", () => {
+    const emptyUpload = validateState({ ...createInitialState(), evidenceMode: "uploaded" });
+    const overBudget = validateState({
+      ...createInitialState(),
+      evidenceMode: "uploaded",
+      deidentificationConfirmed: true,
+      evidenceBudget: 25000,
+      sources: [{ id: "S1", included: true, status: "ready", text: "x".repeat(25001) }],
+    });
+
+    expect(emptyUpload.blocking).toContainEqual(expect.objectContaining({
+      code: "deidentification-unconfirmed", fieldId: "evidenceDeidentified",
+    }));
+    expect(emptyUpload.blocking).toContainEqual(expect.objectContaining({
+      code: "uploaded-evidence-empty", fieldId: "evidenceInput",
+    }));
+    expect(overBudget.blocking).toContainEqual(expect.objectContaining({
+      code: "evidence-budget-exceeded", fieldId: "evidenceBudget",
+    }));
   });
 
   it("blocks selected evidence beyond the configured budget", () => {
