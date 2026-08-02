@@ -31,7 +31,7 @@ The result is application-level decision support, not scientific, statistical, e
 - Code: `src/catalog/research-types.js` preserves all 10 research families and adds explicit subtype/design choices, including underlying medical-education designs and combined implementation/economic evaluation.
 - Code: `src/catalog/standards.js` defines explicit family/stage/design applicability predicates for all 25 catalogued standards and review date `2026-08-01`.
 - Code: `src/catalog/index.js` resolves stage-specific and design-wide standards. `src/ui/render.js` shows official links and the review date.
-- Tests: `tests/unit/catalog.test.js` has positive and forbidden mappings, including systematic review without PRISMA-ScR, cohort without RECORD, prediction external validation without TRIPOD+AI, AI imaging external validation without CONSORT-AI/DECIDE-AI/RECORD, medical-education inheritance, and implementation plus economics without SQUIRE.
+- Tests: `tests/unit/catalog.test.js` has exact full-set assertions for cohort reporting (`STROBE` only), non-AI prediction external-validation reporting (`TRIPOD` only), and AI imaging external-validation reporting (`TRIPOD+AI` and `CLAIM` only). RECORD, TRIPOD+AI, RECORD/CONSORT-AI/DECIDE-AI respectively are forbidden with independent `not.toContain` assertions. Separate targeted tests cover systematic review without PRISMA-ScR, medical-education inheritance, and implementation plus economics without SQUIRE.
 - Tests: `tests/e2e/workspace.spec.js` verifies design persistence and live applicability changes in the standards panel.
 
 ### Important 4: in-flight parsing races
@@ -52,7 +52,7 @@ The result is application-level decision support, not scientific, statistical, e
 
 - Code: `src/evidence/parsers.js` uses fatal UTF-8 decoding, rejects empty text and image-only DOCX, distinguishes encrypted OOXML compound files, and performs minimal CSV, RIS, and BibTeX structural validation.
 - Code: stable codes are translated in `src/i18n.js`; visible rows show only localized reasons while preserving a non-visible diagnostic attribute.
-- Fixtures: `scripts/create-test-fixtures.mjs` and `tests/fixtures/` add real empty, invalid UTF-8, malformed CSV/RIS/BibTeX, image-only DOCX, and encrypted-OOXML signatures.
+- Fixtures: `scripts/create-test-fixtures.mjs` and `tests/fixtures/` add real empty, invalid UTF-8, malformed CSV/RIS/BibTeX, image-only DOCX, a minimally structured encrypted-OOXML compound container with UTF-16 `EncryptionInfo` and `EncryptedPackage` directory entries, and a separate signature-only malformed compound fixture.
 - OCR: no OCR path was added. Image-only PDF and DOCX remain excluded.
 - Tests: `tests/unit/parsers.test.js`, `tests/unit/i18n.test.js`, and the image-only browser scenario cover these outcomes.
 
@@ -160,6 +160,53 @@ Live in-app browser inspection covered 1440x1000, 1024x768, 390x844, and 360x800
 - Operation cancellation, fresh per-batch deidentification, no-truncation, mixed parsing, and prompt source boundaries pass in every browser project.
 - `test-results`, `playwright-report`, and `blob-report` were checked and removed. Owned server PID 4420 was stopped after the final runs. Unrelated PIDs 16820 and 24968 were left untouched.
 - No ledger file was edited.
+
+## Residual correction round
+
+This correction round started from the clean `9a02ae5` worktree and addressed only the four re-review findings.
+
+### Residual finding 1: terminal source records retained raw File objects
+
+- Code: `src/evidence/core.js` now removes `file` after keyed merge whenever the merged source status is `ready`, `error`, or `excluded`. Unmatched source objects retain identity, parser updates still preserve current IDs and internal keys, and removed keys are still not resurrected.
+- Test access: the localhost-only `window.__TEST_ONLY__.sourceStorageMetadata()` projection in `app.js` exposes only source ID, status, and a `hasFile` boolean; it exposes no source text or internal source key.
+- Tests: `tests/unit/evidence-core.test.js` directly covers ready, error, and parser-excluded updates plus stable IDs and unaffected-source identity. `tests/e2e/workspace.spec.js` inspects internal state after a mixed ready/rejected batch and proves all terminal records have `hasFile: false`.
+
+### Residual finding 2: Thai-script jurisdiction and non-Thai human review
+
+- Code: `src/prompt-engine.js` recognizes `ประเทศไทย` as well as English Thai/Thailand settings. Thai PDPA remains jurisdiction-specific.
+- Code: every human-research family now explicitly requires local IRB and institutional-policy verification regardless of country. The human-review checklist separates the local ethics/institution requirement from the Thailand-only data-protection-lead and Thai PDPA check.
+- Tests: `tests/unit/prompt-engine.test.js` covers a Thai-script university-hospital setting and a non-Thai Kenyan human-study setting. The latter requires local ethics and institutional review while explicitly excluding Thai PDPA and the Thai data-protection checklist.
+
+### Residual finding 3: encrypted OOXML classification
+
+- Code: `src/evidence/parsers.js` classifies encrypted OOXML only when the OLE compound signature and both UTF-16 `EncryptionInfo` and `EncryptedPackage` names are present. Signature-only compound input proceeds to DOCX parsing and becomes the stack-free `malformed-file` outcome.
+- Fixtures: `tests/fixtures/encrypted-ooxml.docx` contains an OLE header, directory sector, FAT sector, and both named stream directory entries. `tests/fixtures/malformed-compound.docx` contains only the compound signature.
+- Tests: `tests/unit/parsers.test.js` verifies the encrypted fixture's names and stable `encrypted-docx` result, and verifies the malformed fixture's signature, absent names, and `malformed-file` result. No OCR path or invented text was added.
+
+### Residual finding 4: catalogue and release assertion precision
+
+- Tests: `tests/unit/catalog.test.js` now has separate exact ordered assertions for cohort/STROBE, prediction/TRIPOD, and AI imaging/TRIPOD+AI plus CLAIM. Every forbidden value is asserted independently; the prior combined negative matcher was removed.
+- Documentation: `docs/content-review.md` now states exactly which three scenarios have full-set catalogue assertions and distinguishes them from targeted positive or forbidden mapping checks. It continues to define application-level `Pass` narrowly and requires expert human review.
+
+### Residual TDD evidence
+
+- RED focused unit run: 5 failed and 163 passed across evidence core, prompt engine, parsers, and catalogue. Failures directly reproduced terminal `File` retention, missing Thai-script detection, missing non-Thai local ethics requirements, and the untruthful/missing compound fixtures. The new catalogue assertions passed immediately because the mappings were already correct; the defect was the old combined negative assertion and overstated release wording.
+- The browser-internal assertion was written before implementation. Its first desktop Chromium attempt emitted no completed test result while using Playwright's managed server; that attempt was stopped and is not counted as RED evidence.
+- GREEN focused unit run: 168/168 across the same four files.
+- GREEN targeted browser run: 1/1 desktop Chromium mixed-batch/internal-storage regression against an owned external server.
+
+### Residual final verification
+
+- Literal `npm run vendor`: PASS with the bundled Node/npm launcher and `NODE_USE_SYSTEM_CA=1` convention.
+- Literal `npm test`: PASS, 9 files and 207/207 tests.
+- Playwright `desktop-chromium`: 28/28, including Axe 1/1.
+- Playwright `mobile-chromium`: 28/28, including Axe 1/1.
+- Playwright `desktop-firefox`: 28/28, including Axe 1/1. Firefox used the previously established permitted process context required for Mozilla SWGL initialization.
+- Playwright `desktop-webkit`: 28/28, including Axe 1/1.
+- Browser total: 112/112, including Axe 4/4.
+- Responsive in-app browser inspection: no page-level horizontal overflow or non-scroll-container control overflow at 1440x1000, 1024x768, 390x844, or 360x800. At 1024x768 the three workspace columns measured 240/489/280 px within a 1009 px document. At 390x844 and 360x800, setup, lifecycle, form, and standards regions stacked at the full 375 px and 345 px document widths respectively. The viewport override was reset and the inspection tab closed.
+- Hygiene: `test-results` was removed after result capture; no `playwright-report` or `blob-report` directory existed. Owned server PID 33504 was stopped after all browser work. No unrelated PID was touched and no ledger file was edited.
+- `git diff --check`: PASS before this report and rerun after the report before commit.
 
 ## Remaining conditions
 

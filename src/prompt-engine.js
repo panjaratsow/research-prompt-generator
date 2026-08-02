@@ -160,12 +160,13 @@ function governanceInstruction(state, type, stage) {
     deidentification,
     "Apply governance requirements only when relevant to the participants, data, materials, intervention, jurisdiction, institution, and lifecycle stage; verify current requirements and never claim approval, registration, certification, or compliance without supplied evidence.",
   ];
-  const thaiSetting = /thai|thailand/i.test(state.institutionSetting ?? "");
+  const thaiSetting = /thai|thailand|ประเทศไทย/i.test(state.institutionSetting ?? "");
+  const humanResearch = type.id !== "laboratory-animal" || state.studyDesignId === "laboratory-study";
   if (thaiSetting) {
     instructions.push("Where personal data are involved in Thailand, assess the Thai Personal Data Protection Act (PDPA), lawful basis, data minimization, security, retention, cross-border transfer, and data-subject rights with the institution's data protection lead.");
-    instructions.push("Verify local IRB and institutional policy, including whether the activity requires ethics review, exemption, registration, data-use permission, or another local approval.");
   }
-  if (type.id !== "laboratory-animal" || state.studyDesignId === "laboratory-study") {
+  if (humanResearch) {
+    instructions.push("Verify local IRB and institutional policy, including whether the activity requires ethics review, exemption, registration, data-use permission, or another local approval.");
     instructions.push("For research involving human participants, identifiable human material, or human data, apply the Declaration of Helsinki 2024 and document consent or another justified lawful and ethical basis as applicable.");
   }
   if (type.id === "randomized-trial") {
@@ -213,8 +214,11 @@ function humanReviewInstruction(state, type, stage, design) {
   if (type.id === "laboratory-animal") {
     checklist.push("- [ ] The laboratory lead and relevant animal-welfare or biosafety reviewer verify rigor, welfare, approvals, and reproducibility safeguards.");
   }
-  if (/thai|thailand/i.test(state.institutionSetting ?? "")) {
-    checklist.push("- [ ] The local IRB or ethics contact, data protection lead, and institution verify Thai PDPA and local policy applicability; this prompt is not a compliance determination.");
+  if (type.id !== "laboratory-animal" || state.studyDesignId === "laboratory-study") {
+    checklist.push("- [ ] The local IRB or ethics contact and institution verify ethics-review requirements, exemptions, permissions, and institutional policy applicability; this prompt is not an approval or compliance determination.");
+  }
+  if (/thai|thailand|ประเทศไทย/i.test(state.institutionSetting ?? "")) {
+    checklist.push("- [ ] The institution's data protection lead verifies Thai PDPA applicability and required privacy controls; this prompt is not a legal compliance determination.");
   }
   return `State limitations, uncertainty, and unresolved decisions. This draft requires expert human review before use.\nHuman-review checklist:\n${checklist.join("\n")}`;
 }

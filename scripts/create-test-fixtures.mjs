@@ -22,9 +22,48 @@ const imageOnlyDocument = new Document({
   })] })] }],
 });
 await writeFile("tests/fixtures/image-only.docx", await Packer.toBuffer(imageOnlyDocument));
-const encryptedOoxmlSignature = Buffer.alloc(512);
-Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(encryptedOoxmlSignature);
-await writeFile("tests/fixtures/encrypted-ooxml.docx", encryptedOoxmlSignature);
+const compoundSignature = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+
+function writeCompoundDirectoryEntry(buffer, offset, name, type, { right = -1, child = -1 } = {}) {
+  const encodedName = Buffer.from(`${name}\0`, "utf16le");
+  encodedName.copy(buffer, offset, 0, Math.min(encodedName.length, 64));
+  buffer.writeUInt16LE(Math.min(encodedName.length, 64), offset + 64);
+  buffer[offset + 66] = type;
+  buffer[offset + 67] = 1;
+  buffer.writeInt32LE(-1, offset + 68);
+  buffer.writeInt32LE(right, offset + 72);
+  buffer.writeInt32LE(child, offset + 76);
+  buffer.writeInt32LE(-2, offset + 116);
+}
+
+function encryptedOoxmlCompound() {
+  const buffer = Buffer.alloc(1536);
+  compoundSignature.copy(buffer);
+  buffer.writeUInt16LE(0x003e, 24);
+  buffer.writeUInt16LE(3, 26);
+  buffer.writeUInt16LE(0xfffe, 28);
+  buffer.writeUInt16LE(9, 30);
+  buffer.writeUInt16LE(6, 32);
+  buffer.writeUInt32LE(1, 44);
+  buffer.writeInt32LE(0, 48);
+  buffer.writeUInt32LE(4096, 56);
+  buffer.writeInt32LE(-2, 60);
+  buffer.writeInt32LE(-2, 68);
+  buffer.fill(0xff, 76, 512);
+  buffer.writeInt32LE(1, 76);
+  writeCompoundDirectoryEntry(buffer, 512, "Root Entry", 5, { child: 1 });
+  writeCompoundDirectoryEntry(buffer, 640, "EncryptionInfo", 2, { right: 2 });
+  writeCompoundDirectoryEntry(buffer, 768, "EncryptedPackage", 2);
+  buffer.fill(0xff, 1024);
+  buffer.writeInt32LE(-2, 1024);
+  buffer.writeInt32LE(-3, 1028);
+  return buffer;
+}
+
+await writeFile("tests/fixtures/encrypted-ooxml.docx", encryptedOoxmlCompound());
+const malformedCompound = Buffer.alloc(512);
+compoundSignature.copy(malformedCompound);
+await writeFile("tests/fixtures/malformed-compound.docx", malformedCompound);
 await writeFile("tests/fixtures/empty.txt", "");
 await writeFile("tests/fixtures/invalid-utf8.txt", Buffer.from([0xc3, 0x28]));
 await writeFile("tests/fixtures/malformed.csv", "source,finding\nS1,\"unterminated\n");

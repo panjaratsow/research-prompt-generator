@@ -282,6 +282,13 @@ if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
       const source = createSourceRecord({ name: "synthetic-evidence.txt", size: text.length, type: "text/plain" }, text, []);
       update(replaceSources(state, renumberSources([...state.sources, source])), "test-load-evidence");
     },
+    sourceStorageMetadata() {
+      return state.sources.map(source => ({
+        id: source.id,
+        status: source.status,
+        hasFile: Object.prototype.hasOwnProperty.call(source, "file"),
+      }));
+    },
   };
 }
 render();

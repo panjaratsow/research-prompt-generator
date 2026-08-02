@@ -38,21 +38,41 @@ describe("research catalogue", () => {
       .not.toContain("externalValidation");
   });
 
-  it("uses structured study designs to include expected and exclude forbidden standards", () => {
+  it("uses structured review designs to include expected and exclude forbidden standards", () => {
     expect(getStudyDesignOptions("evidence-review").map(design => design.id)).toEqual(
       expect.arrayContaining(["systematic-review", "meta-analysis", "scoping-review"])
     );
 
     const systematic = resolveStandards("evidence-review", "reporting", "systematic-review").map(item => item.id);
     const scoping = resolveStandards("evidence-review", "reporting", "scoping-review").map(item => item.id);
-    const externalAi = resolveStandards("ai-health-data", "reporting", "ai-imaging-external-validation").map(item => item.id);
 
     expect(systematic).toEqual(expect.arrayContaining(["prisma-2020", "grade"]));
     expect(systematic).not.toContain("prisma-scr");
     expect(scoping).toContain("prisma-scr");
     expect(scoping).not.toContain("prisma-2020");
-    expect(externalAi).toEqual(expect.arrayContaining(["tripod-ai", "claim"]));
-    expect(externalAi).not.toEqual(expect.arrayContaining(["consort-ai", "decide-ai"]));
+  });
+
+  it("maps cohort reporting exactly to STROBE and forbids RECORD", () => {
+    const standards = resolveStandards("observational", "reporting", "cohort").map(item => item.id);
+
+    expect(standards).toEqual(["strobe"]);
+    expect(standards).not.toContain("record");
+  });
+
+  it("maps non-AI prediction reporting exactly to TRIPOD and forbids TRIPOD+AI", () => {
+    const standards = resolveStandards("prediction", "reporting", "prediction-external-validation").map(item => item.id);
+
+    expect(standards).toEqual(["tripod"]);
+    expect(standards).not.toContain("tripod-ai");
+  });
+
+  it("maps AI imaging external validation exactly and forbids RECORD and clinical AI guidance", () => {
+    const standards = resolveStandards("ai-health-data", "reporting", "ai-imaging-external-validation").map(item => item.id);
+
+    expect(standards).toEqual(["tripod-ai", "claim"]);
+    expect(standards).not.toContain("record");
+    expect(standards).not.toContain("consort-ai");
+    expect(standards).not.toContain("decide-ai");
   });
 
   it("inherits the underlying medical-education reporting standard", () => {

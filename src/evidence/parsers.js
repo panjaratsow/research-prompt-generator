@@ -19,10 +19,26 @@ function errorCodeFor(error) {
   return error?.name === "PasswordException" ? "encrypted-pdf" : "malformed-file";
 }
 
-function isCompoundFile(arrayBuffer) {
+function hasCompoundFileSignature(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer, 0, Math.min(arrayBuffer.byteLength, COMPOUND_FILE_SIGNATURE.length));
   return bytes.length === COMPOUND_FILE_SIGNATURE.length
     && COMPOUND_FILE_SIGNATURE.every((value, index) => bytes[index] === value);
+}
+
+function containsUtf16LeName(arrayBuffer, name) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const encoded = Array.from(name, character => character.charCodeAt(0))
+    .flatMap(value => [value & 0xff, value >> 8]);
+  return bytes.some((_, start) =>
+    start + encoded.length <= bytes.length
+    && encoded.every((value, offset) => bytes[start + offset] === value)
+  );
+}
+
+function isEncryptedOoxmlCompound(arrayBuffer) {
+  return hasCompoundFileSignature(arrayBuffer)
+    && containsUtf16LeName(arrayBuffer, "EncryptionInfo")
+    && containsUtf16LeName(arrayBuffer, "EncryptedPackage");
 }
 
 function parseCsv(text) {
@@ -174,7 +190,7 @@ export async function parseEvidenceFile(file, dependencies = {}) {
       return await parsePdf(arrayBuffer, dependencies.pdfjs, dependencies.pdfResources);
     }
     if (extension === "docx") {
-      if (isCompoundFile(arrayBuffer)) throw parserError("encrypted-docx");
+      if (isEncryptedOoxmlCompound(arrayBuffer)) throw parserError("encrypted-docx");
       return await parseDocx(arrayBuffer, dependencies.mammoth);
     }
     return await parsePlainText(arrayBuffer, extension);

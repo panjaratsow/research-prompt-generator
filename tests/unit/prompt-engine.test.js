@@ -173,6 +173,29 @@ describe("prompt contract", () => {
     expect(aiPrompt).not.toContain("DECIDE-AI");
   });
 
+  it("detects a Thai-script institution setting for Thai PDPA and local human review", () => {
+    const prompt = buildPrompt(validPlanningState({
+      institutionSetting: "ประเทศไทย; โรงพยาบาลมหาวิทยาลัย",
+    }));
+
+    expect(prompt).toContain("Thai Personal Data Protection Act (PDPA)");
+    expect(prompt).toContain("local IRB and institutional policy");
+    expect(prompt).toContain("data protection lead");
+  });
+
+  it("requires local ethics and institutional review for non-Thai human research without adding Thai PDPA", () => {
+    const prompt = buildPrompt(validPlanningState({
+      institutionSetting: "Kenya; university teaching hospital",
+    }));
+    const finalSection = prompt.slice(prompt.indexOf("12. LIMITATIONS AND HUMAN REVIEW"));
+
+    expect(prompt).toContain("local IRB and institutional policy");
+    expect(finalSection).toContain("local IRB or ethics contact");
+    expect(finalSection).toContain("institutional policy");
+    expect(prompt).not.toContain("Thai Personal Data Protection Act (PDPA)");
+    expect(finalSection).not.toContain("data protection lead");
+  });
+
   it("ends with a task-tailored human-review checklist", () => {
     const prompt = buildPrompt(validPlanningState({
       researchTypeId: "evidence-review",

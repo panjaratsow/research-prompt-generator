@@ -127,6 +127,28 @@ describe("evidence core", () => {
     expect(mergeSourceUpdates([], [parserUpdate])).toEqual([]);
   });
 
+  it("removes raw files from every terminal source update while preserving race-safe merging", () => {
+    const readyFile = { name: "ready.txt" };
+    const errorFile = { name: "error.txt" };
+    const excludedFile = { name: "excluded.txt" };
+    const current = renumberSources([
+      { _key: "stable", filename: "stable.txt", status: "ready", text: "stable" },
+      { _key: "ready", filename: "ready.txt", status: "extracting", text: "", file: readyFile },
+      { _key: "error", filename: "error.txt", status: "extracting", text: "", file: errorFile },
+      { _key: "excluded", filename: "excluded.txt", status: "extracting", text: "", file: excludedFile },
+    ]);
+
+    const merged = mergeSourceUpdates(current, [
+      { _key: "ready", status: "ready", included: true, text: "parsed" },
+      { _key: "error", status: "error", included: false, text: "", error: "malformed-file" },
+      { _key: "excluded", status: "excluded", included: false, text: "", error: "malformed-file" },
+    ]);
+
+    expect(merged[0]).toBe(current[0]);
+    expect(merged.map(source => source.id)).toEqual(["S1", "S2", "S3", "S4"]);
+    expect(merged.slice(1).every(source => !("file" in source))).toBe(true);
+  });
+
   it("creates metadata-only source records from parser output", () => {
     const record = createSourceRecord({ name: "notes.txt", size: 42, type: "text/plain" }, "deidentified text", ["parser-warning"]);
 

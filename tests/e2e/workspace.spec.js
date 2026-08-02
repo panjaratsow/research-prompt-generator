@@ -493,6 +493,11 @@ test("parses valid peers and inventories rejected files in a mixed batch", async
   await expect(page.getByTestId("source-S3")).toHaveAttribute("data-error-code", "unsupported-file-type");
   await expect(page.getByRole("button", { name: "Remove S2" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Remove S3" })).toBeVisible();
+  expect(await page.evaluate(() => window.__TEST_ONLY__.sourceStorageMetadata())).toEqual([
+    { id: "S1", status: "ready", hasFile: false },
+    { id: "S2", status: "excluded", hasFile: false },
+    { id: "S3", status: "excluded", hasFile: false },
+  ]);
 });
 
 test("repeated Process activation cannot overlap or retain File records", async ({ page }) => {

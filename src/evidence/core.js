@@ -170,6 +170,9 @@ export function mergeSourceUpdates(currentSources, updates) {
   const byKey = new Map(Array.from(updates ?? [], update => [update._key, update]));
   return Array.from(currentSources ?? [], source => {
     const update = byKey.get(source._key);
-    return update ? { ...source, ...update, _key: source._key, id: source.id } : source;
+    if (!update) return source;
+    const merged = { ...source, ...update, _key: source._key, id: source.id };
+    if (["ready", "error", "excluded"].includes(merged.status)) delete merged.file;
+    return merged;
   });
 }

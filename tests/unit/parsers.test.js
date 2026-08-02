@@ -88,7 +88,19 @@ describe("evidence parsers", () => {
   it("distinguishes an encrypted OOXML container from a malformed DOCX", async () => {
     const bytes = await readFile("tests/fixtures/encrypted-ooxml.docx");
 
+    expect(bytes.includes(Buffer.from("EncryptionInfo", "utf16le"))).toBe(true);
+    expect(bytes.includes(Buffer.from("EncryptedPackage", "utf16le"))).toBe(true);
+
     await expect(parseEvidenceFile(file("encrypted.docx", bytes), { mammoth })).rejects.toEqual({ code: "encrypted-docx" });
+  });
+
+  it("classifies a signature-only malformed compound DOCX as malformed-file", async () => {
+    const bytes = await readFile("tests/fixtures/malformed-compound.docx");
+
+    expect([...bytes.subarray(0, 8)]).toEqual([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    expect(bytes.includes(Buffer.from("EncryptionInfo", "utf16le"))).toBe(false);
+    expect(bytes.includes(Buffer.from("EncryptedPackage", "utf16le"))).toBe(false);
+    await expect(parseEvidenceFile(file("malformed.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
   });
 
   it("dispatches PDF files with configured parser resources", async () => {
