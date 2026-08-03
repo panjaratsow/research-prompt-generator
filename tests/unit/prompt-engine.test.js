@@ -4,6 +4,7 @@ import {
   buildPrompt,
   PreflightError,
 } from "../../src/prompt-engine.js";
+import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
 import { createInitialState } from "../../src/state.js";
 
 function validPlanningState(overrides = {}) {
@@ -20,6 +21,35 @@ function validPlanningState(overrides = {}) {
 }
 
 describe("prompt contract", () => {
+  it("keeps lifecycle objectives and task-only guidance separate", () => {
+    const fields = {
+      topic: "Severe postpartum haemorrhage",
+      problemStatement: "Preventable maternal morbidity",
+      population: "Women giving birth in Thai referral hospitals",
+      researchQuestion: "Which modifiable factors predict severe postpartum haemorrhage?",
+      primaryOutcome: "Severe postpartum haemorrhage",
+      informationSources: "MEDLINE/PubMed and Embase",
+      searchStrategy: "MeSH and keywords",
+      evidenceSummary: "Two cohort studies",
+      synthesisMethod: "Narrative synthesis",
+      researchGaps: "Prospective evidence is limited",
+      hypotheses: "Earlier recognition improves outcomes",
+      methodologyOutline: "Prospective cohort study",
+      resourcesTimeline: "12 months",
+    };
+
+    for (const stage of LIFECYCLE_STAGES) {
+      const prompt = buildPrompt(validPlanningState({ stageId: stage.id, fields }));
+      const objective = prompt.slice(prompt.indexOf("3. LIFECYCLE OBJECTIVE"), prompt.indexOf("4. EVIDENCE BOUNDARY"));
+      const task = prompt.slice(prompt.indexOf("6. TASK"), prompt.indexOf("7. REQUIRED OUTPUT"));
+
+      expect(objective).toBe(`3. LIFECYCLE OBJECTIVE\n${stage.task}\n\n`);
+      expect(task).toContain(`Complete the ${stage.id} task for observational research.`);
+      expect(task).toContain("Stage-specific instructions:");
+      expect(task).not.toContain(stage.task);
+    }
+  });
+
   it("implements the seven-step lifecycle-specific prompt contract", () => {
     const literature = buildPrompt(validPlanningState({
       stageId: "literature-review",

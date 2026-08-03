@@ -126,17 +126,17 @@ test("preserves persistent setup and structured design across transitions", asyn
   await page.getByLabel("Experience level").selectOption("advanced");
   await page.getByLabel("Scientific field").fill("Neonatology");
   await page.getByLabel("Country and institutional setting").fill("Thailand, university teaching hospital");
-  await page.getByLabel("Target output").selectOption("journal-manuscript");
+  await page.getByLabel("Target output").selectOption("research-proposal");
   await page.getByLabel("Citation style").selectOption("AMA");
   await page.getByLabel("Research type").selectOption("medical-education");
   await page.getByLabel("Study subtype or design").selectOption("education-observational");
-  await page.locator('[data-action="stage"][data-stage-id="reporting"]').click();
+  await page.locator('[data-action="stage"][data-stage-id="write-proposal"]').click();
 
   await expect(page.getByLabel("Researcher role")).toHaveValue("postgraduate-student");
   await expect(page.getByLabel("Experience level")).toHaveValue("advanced");
   await expect(page.getByLabel("Scientific field")).toHaveValue("Neonatology");
   await expect(page.getByLabel("Country and institutional setting")).toHaveValue("Thailand, university teaching hospital");
-  await expect(page.getByLabel("Target output")).toHaveValue("journal-manuscript");
+  await expect(page.getByLabel("Target output")).toHaveValue("research-proposal");
   await expect(page.getByLabel("Citation style")).toHaveValue("AMA");
   await expect(page.getByLabel("Study subtype or design")).toHaveValue("education-observational");
 });
@@ -146,7 +146,7 @@ test("shows applicability-aware official standards links and review date", async
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research type").selectOption("evidence-review");
   await page.getByLabel("Study subtype or design").selectOption("systematic-review");
-  await page.locator('[data-action="stage"][data-stage-id="reporting"]').click();
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
 
   const standards = page.getByTestId("standards-summary");
   await expect(standards).toContainText("Reviewed 2026-08-01");
@@ -322,8 +322,8 @@ test("updates question readiness while the final required field remains focused"
   const question = page.locator('[data-field-id="researchQuestion"] textarea');
   await question.focus();
   await question.pressSequentially("Which factors improve care?");
-  const questionStage = page.locator('[data-action="stage"][data-stage-id="question"]');
-  await expect(questionStage).toHaveAttribute("aria-label", /Research question: ready/i);
+  const questionStage = page.locator('[data-action="stage"][data-stage-id="define-question"]');
+  await expect(questionStage).toHaveAttribute("aria-label", /Step 1: Define the Research Question: ready/i);
   await expect(question).toHaveValue("Which factors improve care?");
   await expect(question).toBeFocused();
   expect(await question.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
@@ -334,7 +334,7 @@ test("renders resolvable warnings and visible lifecycle readiness text with icon
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research type").selectOption("prediction");
   await page.getByLabel("Study subtype or design").selectOption("prediction-external-validation");
-  await page.locator('[data-action="stage"][data-stage-id="protocol"]').click();
+  await page.locator('[data-action="stage"][data-stage-id="outline-methodology"]').click();
 
   const warnings = page.getByTestId("preflight-warnings");
   await expect(warnings).toContainText("Consider study registration");
@@ -356,7 +356,7 @@ test("renders resolvable warnings and visible lifecycle readiness text with icon
   await expect(warnings).not.toContainText("Consider a data-sharing plan");
   await expect(warnings).not.toContainText("Consider external validation");
 
-  const questionStage = page.locator('[data-action="stage"][data-stage-id="question"]');
+  const questionStage = page.locator('[data-action="stage"][data-stage-id="define-question"]');
   await expect(questionStage.locator("[data-stage-status]")).toBeVisible();
   await expect(questionStage.locator("img[data-stage-icon]")).toBeVisible();
 });
@@ -384,9 +384,9 @@ test("confirms incompatible stage changes and supports modal keyboard controls",
   });
   await page.getByLabel(/problem statement/i).fill("Delayed diagnosis");
   expect(await page.evaluate(() => window.workspaceStates.at(-1).fields.problemStatement)).toBe("Delayed diagnosis");
-  const evidenceStage = page.getByRole("button", { name: /evidence/i });
+  const evidenceStage = page.getByRole("button", { name: /review the literature/i });
   await expect(evidenceStage).toHaveAttribute("data-action", "stage");
-  await expect(evidenceStage).toHaveAttribute("data-stage-id", "evidence");
+  await expect(evidenceStage).toHaveAttribute("data-stage-id", "literature-review");
   await evidenceStage.click();
   expect(pageErrors).toEqual([]);
   const dialog = page.getByRole("dialog");

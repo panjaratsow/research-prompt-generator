@@ -148,7 +148,11 @@ function evidenceBoundary(state, type) {
 }
 
 function taskInstruction(type, stage) {
-  return `Complete the ${stage.id} task for ${type.id} research: ${STAGE_INSTRUCTIONS[stage.id]} Never invent studies, data, statistics, identifiers, ethics approval, or registration. If information is absent, identify it as missing rather than infer it.`;
+  return [
+    `Complete the ${stage.id} task for ${type.id} research.`,
+    `Stage-specific instructions: ${STAGE_INSTRUCTIONS[stage.id]}`,
+    "Never invent studies, data, statistics, identifiers, ethics approval, or registration. If information is absent, identify it as missing rather than infer it.",
+  ].join("\n");
 }
 
 function standardsInstruction(type, standards) {
