@@ -5,37 +5,67 @@ import {
   STANDARDS,
   STANDARDS_REVIEWED_ON,
   getAdaptiveFieldIds,
+  getContextFieldIds,
   getResearchType,
   getStudyDesignOptions,
   resolveStandards,
 } from "../../src/catalog/index.js";
 
 describe("research catalogue", () => {
-  it("contains the ten approved research families and lifecycle stages", () => {
+  it("contains the ten approved research families and seven approved lifecycle stages", () => {
     expect(RESEARCH_TYPES).toHaveLength(10);
-    expect(LIFECYCLE_STAGES).toHaveLength(10);
+    expect(LIFECYCLE_STAGES.map(stage => stage.id)).toEqual([
+      "define-question",
+      "literature-review",
+      "synthesize-information",
+      "identify-gaps",
+      "generate-hypotheses",
+      "outline-methodology",
+      "write-proposal",
+    ]);
+    expect(LIFECYCLE_STAGES).toHaveLength(7);
     expect(getResearchType("randomized-trial").frameworks).toContain("PICO");
   });
 
   it("maps standards by research type and stage", () => {
-    expect(resolveStandards("randomized-trial", "protocol").map(item => item.id))
+    expect(resolveStandards("randomized-trial", "outline-methodology").map(item => item.id))
       .toEqual(expect.arrayContaining(["spirit-2025", "ich-gcp-e6-r3"]));
-    expect(resolveStandards("randomized-trial", "reporting").map(item => item.id))
+    expect(resolveStandards("randomized-trial", "write-proposal").map(item => item.id))
       .toContain("consort-2025");
-    expect(resolveStandards("qualitative-mixed", "protocol").map(item => item.id))
+    expect(resolveStandards("qualitative-mixed", "outline-methodology").map(item => item.id))
       .not.toContain("consort-2025");
   });
 
   it("returns adaptive fields for diagnostic research", () => {
-    expect(getAdaptiveFieldIds("diagnostic", "protocol"))
+    expect(getAdaptiveFieldIds("diagnostic", "outline-methodology"))
       .toEqual(expect.arrayContaining(["targetCondition", "indexTest", "referenceStandard"]));
   });
 
   it("exposes contextual warning controls only where they can resolve an applicable warning", () => {
-    expect(getAdaptiveFieldIds("prediction", "protocol", "prediction-external-validation"))
+    expect(getAdaptiveFieldIds("prediction", "outline-methodology", "prediction-external-validation"))
       .toEqual(expect.arrayContaining(["registration", "ethicsApproval", "dataSharingPlan", "externalValidation"]));
-    expect(getAdaptiveFieldIds("prediction", "protocol", "prediction-development"))
+    expect(getAdaptiveFieldIds("prediction", "outline-methodology", "prediction-development"))
       .not.toContain("externalValidation");
+  });
+
+  it("uses the approved context-field contract", () => {
+    expect(getContextFieldIds("evidence-review", "literature-review", "systematic-review")).toEqual(["registration"]);
+    expect(getContextFieldIds("observational", "literature-review", "cohort")).toEqual([]);
+    expect(getContextFieldIds("ai-health-data", "outline-methodology", "ai-external-validation"))
+      .toEqual(["registration", "ethicsApproval", "dataSharingPlan", "externalValidation"]);
+    expect(getContextFieldIds("ai-health-data", "write-proposal", "ai-external-validation"))
+      .toEqual(["registration", "ethicsApproval", "dataSharingPlan", "externalValidation"]);
+  });
+
+  it("remaps medical standards to the approved seven-stage lifecycle", () => {
+    expect(resolveStandards("observational", "define-question", "cohort").map(s => s.id)).toEqual([]);
+    expect(resolveStandards("observational", "outline-methodology", "cohort").map(s => s.id)).toEqual(["strobe"]);
+    expect(resolveStandards("ai-health-data", "outline-methodology", "ai-imaging-external-validation").map(s => s.id)).toEqual(["tripod-ai", "claim"]);
+    expect(resolveStandards("evidence-review", "literature-review", "systematic-review").map(s => s.id)).toEqual(["prisma-2020"]);
+    expect(resolveStandards("evidence-review", "synthesize-information", "systematic-review").map(s => s.id)).toEqual(["prisma-2020", "grade"]);
+    expect(resolveStandards("evidence-review", "identify-gaps", "systematic-review").map(s => s.id)).toEqual(["grade"]);
+    expect(resolveStandards("evidence-review", "write-proposal", "systematic-review").map(s => s.id)).toEqual(["prisma-p"]);
+    expect(resolveStandards("evidence-review", "literature-review", "scoping-review").map(s => s.id)).toEqual(["prisma-scr"]);
   });
 
   it("uses structured review designs to include expected and exclude forbidden standards", () => {
@@ -43,8 +73,8 @@ describe("research catalogue", () => {
       expect.arrayContaining(["systematic-review", "meta-analysis", "scoping-review"])
     );
 
-    const systematic = resolveStandards("evidence-review", "reporting", "systematic-review").map(item => item.id);
-    const scoping = resolveStandards("evidence-review", "reporting", "scoping-review").map(item => item.id);
+    const systematic = resolveStandards("evidence-review", "synthesize-information", "systematic-review").map(item => item.id);
+    const scoping = resolveStandards("evidence-review", "literature-review", "scoping-review").map(item => item.id);
 
     expect(systematic).toEqual(expect.arrayContaining(["prisma-2020", "grade"]));
     expect(systematic).not.toContain("prisma-scr");
@@ -53,21 +83,21 @@ describe("research catalogue", () => {
   });
 
   it("maps cohort reporting exactly to STROBE and forbids RECORD", () => {
-    const standards = resolveStandards("observational", "reporting", "cohort").map(item => item.id);
+    const standards = resolveStandards("observational", "write-proposal", "cohort").map(item => item.id);
 
     expect(standards).toEqual(["strobe"]);
     expect(standards).not.toContain("record");
   });
 
   it("maps non-AI prediction reporting exactly to TRIPOD and forbids TRIPOD+AI", () => {
-    const standards = resolveStandards("prediction", "reporting", "prediction-external-validation").map(item => item.id);
+    const standards = resolveStandards("prediction", "write-proposal", "prediction-external-validation").map(item => item.id);
 
     expect(standards).toEqual(["tripod"]);
     expect(standards).not.toContain("tripod-ai");
   });
 
   it("maps AI imaging external validation exactly and forbids RECORD and clinical AI guidance", () => {
-    const standards = resolveStandards("ai-health-data", "reporting", "ai-imaging-external-validation").map(item => item.id);
+    const standards = resolveStandards("ai-health-data", "write-proposal", "ai-imaging-external-validation").map(item => item.id);
 
     expect(standards).toEqual(["tripod-ai", "claim"]);
     expect(standards).not.toContain("record");
@@ -76,18 +106,18 @@ describe("research catalogue", () => {
   });
 
   it("inherits the underlying medical-education reporting standard", () => {
-    expect(resolveStandards("medical-education", "reporting", "education-randomized-trial").map(item => item.id))
+    expect(resolveStandards("medical-education", "write-proposal", "education-randomized-trial").map(item => item.id))
       .toEqual(expect.arrayContaining(["consort-2025", "greet"]));
-    expect(resolveStandards("medical-education", "reporting", "education-observational").map(item => item.id))
+    expect(resolveStandards("medical-education", "write-proposal", "education-observational").map(item => item.id))
       .toContain("strobe");
-    expect(resolveStandards("medical-education", "reporting", "education-qualitative").map(item => item.id))
+    expect(resolveStandards("medical-education", "write-proposal", "education-qualitative").map(item => item.id))
       .toEqual(expect.arrayContaining(["coreq", "srqr"]));
   });
 
   it("maps a combined implementation and economic design without quality-improvement guidance", () => {
     const standards = resolveStandards(
       "implementation-qi-economic",
-      "reporting",
+      "write-proposal",
       "implementation-economic-evaluation"
     ).map(item => item.id);
 
@@ -112,8 +142,8 @@ describe("research catalogue", () => {
       "spirit-ai", "consort-ai", "decide-ai", "claim", "stari", "squire",
       "tidier", "cheers-2022",
     ]);
-    expect(resolveStandards("randomized-trials", "protocol")).toEqual([]);
-    expect(getAdaptiveFieldIds("diagnostics", "protocol")).toEqual([]);
+    expect(resolveStandards("randomized-trials", "outline-methodology")).toEqual([]);
+    expect(getAdaptiveFieldIds("diagnostics", "outline-methodology")).toEqual([]);
   });
 });
 

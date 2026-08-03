@@ -26,13 +26,22 @@ const EXPERIENCE_LEVELS = {
 const TARGET_OUTPUTS = {
   "stage-appropriate-deliverable": "Stage-appropriate deliverable",
   "research-question": "Research question and objectives",
+  "literature-review-strategy": "Literature-review strategy",
   "evidence-synthesis": "Evidence synthesis",
-  "study-protocol": "Study protocol",
-  "ethics-governance-plan": "Ethics and governance plan",
-  "analysis-plan": "Statistical or analytical plan",
-  "grant-proposal": "Grant proposal",
-  "journal-manuscript": "Journal manuscript",
-  "dissemination-plan": "Dissemination and impact plan",
+  "research-gap-analysis": "Research-gap analysis",
+  "hypotheses-propositions": "Hypotheses or research propositions",
+  "methodology-outline": "Research methodology outline",
+  "research-proposal": "Research proposal",
+};
+
+const STAGE_INSTRUCTIONS = {
+  "define-question": "Clarify the problem, significance, population, outcome, and a focused feasible research question.",
+  "literature-review": "Use a reproducible literature-review strategy appropriate to the evidence mode, including named sources, eligibility decisions, and a transparent search record.",
+  "synthesize-information": "Produce a source-grounded synthesis that separates sources from interpretation, limitations, uncertainty, and Source ID citations.",
+  "identify-gaps": "Distinguish documented research gaps from assumptions, then justify the gaps from reviewed and synthesized information.",
+  "generate-hypotheses": "Develop testable hypotheses, research propositions, or a justified non-hypothesis approach aligned with the research gaps and question.",
+  "outline-methodology": "Request applicable design, analysis, ethics, governance, feasibility, reporting, and dissemination components without claiming approval or compliance.",
+  "write-proposal": "Integrate applicable analysis, ethics, governance, feasibility, reporting, and dissemination components into a coherent proposal without claiming approval or compliance.",
 };
 
 const QUALITY_CHECKS = {
@@ -139,7 +148,7 @@ function evidenceBoundary(state, type) {
 }
 
 function taskInstruction(type, stage) {
-  return `Complete the ${stage.id} task for ${type.id} research: ${stage.task} Never invent studies, data, statistics, identifiers, ethics approval, or registration. If information is absent, identify it as missing rather than infer it.`;
+  return `Complete the ${stage.id} task for ${type.id} research: ${STAGE_INSTRUCTIONS[stage.id]} Never invent studies, data, statistics, identifiers, ethics approval, or registration. If information is absent, identify it as missing rather than infer it.`;
 }
 
 function standardsInstruction(type, standards) {
@@ -175,7 +184,7 @@ function governanceInstruction(state, type, stage) {
   if (type.id === "ai-health-data") {
     instructions.push("Apply the WHO Ethics and Governance of Artificial Intelligence for Health guidance to intended use, accountability, transparency, safety, bias, equity, human oversight, and deployment monitoring as applicable.");
   }
-  if (["reporting", "dissemination-impact"].includes(stage.id)) {
+  if (["outline-methodology", "write-proposal"].includes(stage.id)) {
     instructions.push("For biomedical publication, check the ICMJE Recommendations (January 2026), authorship and disclosure requirements, trial or review registration, data-sharing statements, and target-journal policy.");
     instructions.push("Use the applicable EQUATOR Network reporting guideline as a checklist, while treating guideline selection as decision support rather than certification.");
   }

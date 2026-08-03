@@ -4,6 +4,7 @@ import {
   createPublicWorkspaceState,
   replaceSources,
   resetState,
+  TARGET_OUTPUTS,
   setEvidenceBudget,
   setEvidenceMode,
   setDeidentificationConfirmed,
@@ -18,10 +19,23 @@ import {
 } from "../../src/state.js";
 
 describe("state transitions", () => {
+  it("offers the approved target outputs", () => {
+    expect(TARGET_OUTPUTS).toEqual([
+      "stage-appropriate-deliverable",
+      "research-question",
+      "literature-review-strategy",
+      "evidence-synthesis",
+      "research-gap-analysis",
+      "hypotheses-propositions",
+      "methodology-outline",
+      "research-proposal",
+    ]);
+  });
+
   it("uses approved defaults", () => {
     expect(createInitialState()).toMatchObject({
       researchTypeId: "observational",
-      stageId: "question",
+      stageId: "define-question",
       interfaceLocale: "th",
       evidenceMode: "planning",
       outputLanguage: "bilingual",
@@ -39,6 +53,10 @@ describe("state transitions", () => {
     });
   });
 
+  it("rejects former lifecycle identifiers", () => {
+    expect(() => setStage(createInitialState(), "question")).toThrow(RangeError);
+  });
+
   it("requires confirmation before clearing incompatible fields", () => {
     const withExposure = setField(createInitialState(), "exposure", "Diabetes");
     const pending = setResearchType(withExposure, "qualitative-mixed", false);
@@ -53,7 +71,7 @@ describe("state transitions", () => {
   it("preserves compatible fields across research-type and stage transitions", () => {
     const state = setField(createInitialState(), "population", "Adults in Bangkok");
     const typeTransition = setResearchType(state, "randomized-trial", true);
-    const stageTransition = setStage(typeTransition.state, "protocol");
+    const stageTransition = setStage(typeTransition.state, "outline-methodology");
 
     expect(typeTransition.state.fields.population).toBe("Adults in Bangkok");
     expect(stageTransition.fields.population).toBe("Adults in Bangkok");
@@ -65,18 +83,18 @@ describe("state transitions", () => {
     state = setSetupField(state, "experienceLevel", "advanced");
     state = setSetupField(state, "scientificField", "Neonatology");
     state = setSetupField(state, "institutionSetting", "Thailand, university teaching hospital");
-    state = setSetupField(state, "targetOutput", "journal-manuscript");
+    state = setSetupField(state, "targetOutput", "research-proposal");
     state = setSetupField(state, "citationStyle", "AMA");
 
     const nextType = setResearchType(state, "medical-education", true).state;
-    const nextStage = setStage(nextType, "reporting");
+    const nextStage = setStage(nextType, "write-proposal");
 
     expect(nextStage).toMatchObject({
       researcherRole: "postgraduate-student",
       experienceLevel: "advanced",
       scientificField: "Neonatology",
       institutionSetting: "Thailand, university teaching hospital",
-      targetOutput: "journal-manuscript",
+      targetOutput: "research-proposal",
       citationStyle: "AMA",
       studyDesignId: "education-observational",
     });
@@ -165,13 +183,13 @@ describe("state transitions", () => {
       ...createInitialState(),
       fields: { population: "Thai adults", problemStatement: "Delayed diagnosis" },
     };
-    const next = setStage(state, "evidence");
+    const next = setStage(state, "literature-review");
 
     expect(next).not.toBe(state);
     expect(next.fields).not.toBe(state.fields);
-    expect(next.stageId).toBe("evidence");
+    expect(next.stageId).toBe("literature-review");
     expect(next.fields).toEqual({ population: "Thai adults" });
-    expect(state.stageId).toBe("question");
+    expect(state.stageId).toBe("define-question");
     expect(state.fields).toEqual({
       population: "Thai adults",
       problemStatement: "Delayed diagnosis",

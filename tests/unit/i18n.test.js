@@ -10,6 +10,13 @@ describe("localized copy", () => {
     expect(t("en", "actions.reset")).toBe("Start a new workspace");
   });
 
+  it("localizes the approved bilingual seven-step lifecycle", () => {
+    expect(t("en", "stages.define-question")).toBe("Step 1: Define the Research Question");
+    expect(t("en", "stages.write-proposal")).toBe("Step 7: Write a Research Proposal");
+    expect(t("th", "stages.define-question")).toBe("ขั้นที่ 1: กำหนดคำถามวิจัย");
+    expect(t("th", "stages.write-proposal")).toBe("ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย");
+  });
+
   it.each([
     "empty-text",
     "invalid-utf8",

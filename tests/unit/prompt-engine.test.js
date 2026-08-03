@@ -20,6 +20,51 @@ function validPlanningState(overrides = {}) {
 }
 
 describe("prompt contract", () => {
+  it("implements the seven-step lifecycle-specific prompt contract", () => {
+    const literature = buildPrompt(validPlanningState({
+      stageId: "literature-review",
+      evidenceMode: "web-research",
+      fields: { ...validPlanningState().fields, informationSources: "MEDLINE/PubMed", searchStrategy: "MeSH and keywords" },
+      targetOutput: "literature-review-strategy",
+    }));
+    expect(literature).toContain("Plan and conduct a reproducible, critical review of relevant literature.");
+    expect(literature).toContain("MEDLINE/PubMed");
+    expect(literature).toContain("Embase");
+    expect(literature).toContain("search date (YYYY-MM-DD)");
+    expect(literature).toContain("reproducible search terms or strategy");
+    expect(literature).toContain("direct link");
+    expect(literature).toMatch(/DOI|PMID|registry identifier/);
+    expect(literature).toContain("Target output: Literature-review strategy");
+
+    const synthesis = buildPrompt(validPlanningState({
+      stageId: "synthesize-information",
+      evidenceMode: "uploaded",
+      deidentificationConfirmed: true,
+      fields: { ...validPlanningState().fields, evidenceSummary: "Two cohort studies", synthesisMethod: "Narrative synthesis" },
+      sources: [{ id: "S1", filename: "evidence.pdf", status: "ready", included: true, text: "Source-supported finding", warnings: [] }],
+    }));
+    expect(synthesis).toContain("source-grounded synthesis");
+    expect(synthesis).toContain("sources from interpretation");
+    expect(synthesis).toContain("Source ID");
+    expect(synthesis).not.toContain("Search named databases");
+
+    const hypotheses = buildPrompt(validPlanningState({
+      stageId: "generate-hypotheses",
+      fields: { ...validPlanningState().fields, hypotheses: "Primary hypothesis" },
+    }));
+    expect(hypotheses).toContain("testable hypotheses");
+    expect(hypotheses).toContain("research propositions");
+    expect(hypotheses).toContain("justified non-hypothesis approach");
+  });
+
+  it("serializes only approved lifecycle task identifiers", () => {
+    const prompt = buildPrompt(validPlanningState({
+      stageId: "write-proposal",
+      fields: { ...validPlanningState().fields, problemStatement: "Gap", primaryOutcome: "Outcome", methodologyOutline: "Cohort methods", resourcesTimeline: "12 months" },
+    }));
+    expect(prompt).not.toMatch(/Complete the (question|evidence|protocol|ethics-governance|analysis-plan|proposal|conduct-quality|analysis-interpretation|reporting|dissemination-impact) task/);
+    expect(prompt).toContain("Complete the write-proposal task");
+  });
   it("returns metadata-only issues for a selected source with no text", () => {
     const state = validPlanningState({
       evidenceMode: "uploaded",
@@ -119,7 +164,7 @@ describe("prompt contract", () => {
       experienceLevel: "advanced",
       scientificField: "Maternal-fetal medicine",
       institutionSetting: "Thailand, university teaching hospital",
-      targetOutput: "journal-manuscript",
+      targetOutput: "research-proposal",
       citationStyle: "AMA",
       studyDesignId: "cohort",
     }));
@@ -129,24 +174,27 @@ describe("prompt contract", () => {
     expect(prompt).toContain("Scientific field: Maternal-fetal medicine");
     expect(prompt).toContain("Institutional setting: Thailand, university teaching hospital");
     expect(prompt).toContain("Study subtype/design: Cohort study");
-    expect(prompt).toContain("Target output: Journal manuscript");
+    expect(prompt).toContain("Target output: Research proposal");
     expect(prompt).toContain("Citation style: AMA");
   });
 
   it("applies governance sources by setting, design, stage, and research family", () => {
-    const reportingFields = {
+    const proposalFields = {
       ...validPlanningState().fields,
       primaryOutcome: "Severe postpartum haemorrhage",
       existingInformation: "Protocol details remain to be verified",
+      problemStatement: "Preventable maternal morbidity",
+      methodologyOutline: "Prospective cohort study",
+      resourcesTimeline: "12 months",
     };
     const clinicalPrompt = buildPrompt(validPlanningState({
-      stageId: "reporting",
-      fields: reportingFields,
+      stageId: "write-proposal",
+      fields: proposalFields,
     }));
     const aiPrompt = buildPrompt(validPlanningState({
       researchTypeId: "ai-health-data",
       studyDesignId: "ai-imaging-external-validation",
-      stageId: "reporting",
+      stageId: "write-proposal",
       fields: {
         topic: "External validation of a chest-radiograph model",
         population: "Adults at Thai university hospitals",
@@ -160,6 +208,9 @@ describe("prompt contract", () => {
         modelInputs: "Chest radiographs",
         validationDataset: "External dataset",
         performanceMeasures: "Calibration and discrimination",
+        problemStatement: "External validity is uncertain",
+        methodologyOutline: "External validation study",
+        resourcesTimeline: "12 months",
       },
     }));
 

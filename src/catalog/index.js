@@ -51,13 +51,12 @@ export function getContextFieldIds(typeId, stageId, studyDesignId) {
   const designId = studyDesignId ?? type?.defaultStudyDesignId;
   if (!type || !getLifecycleStage(stageId) || !getStudyDesign(typeId, designId)) return [];
   const fields = [];
-  if (["question", "evidence", "protocol", "proposal"].includes(stageId)) fields.push("registration");
-  if (["protocol", "ethics-governance", "conduct-quality"].includes(stageId)) fields.push("ethicsApproval");
-  if (["observational", "prediction", "ai-health-data"].includes(typeId)) fields.push("dataSharingPlan");
-  if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(designId)) {
-    fields.push("externalValidation");
-  }
-  return fields;
+  const methodsStages = ["outline-methodology", "write-proposal"];
+  if (methodsStages.includes(stageId)) fields.push("registration", "ethicsApproval");
+  if (typeId === "evidence-review" && stageId === "literature-review") fields.push("registration");
+  if (methodsStages.includes(stageId) && ["observational", "prediction", "ai-health-data"].includes(typeId)) fields.push("dataSharingPlan");
+  if (methodsStages.includes(stageId) && ["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(designId)) fields.push("externalValidation");
+  return [...new Set(fields)];
 }
 
 export function getAdaptiveFieldIds(typeId, stageId, studyDesignId) {

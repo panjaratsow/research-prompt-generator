@@ -15,11 +15,11 @@ describe("prompt drawer actions", () => {
   it("builds a dated plain-text download", () => {
     const result = downloadPrompt("Research prompt", {
       researchTypeId: "observational",
-      stageId: "question",
+      stageId: "define-question",
       now: new Date("2026-08-02T00:00:00.000Z"),
     });
 
-    expect(result.filename).toBe("research-prompt-observational-question-2026-08-02.txt");
+    expect(result.filename).toBe("research-prompt-observational-define-question-2026-08-02.txt");
     expect(result.url).toMatch(/^blob:/);
     URL.revokeObjectURL(result.url);
   });

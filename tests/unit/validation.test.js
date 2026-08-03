@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInitialState, setField } from "../../src/state.js";
+import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
 import {
   getRequiredFieldIds,
   validateState,
@@ -33,11 +34,11 @@ describe("preflight validation", () => {
     );
   });
 
-  it("marks question stage ready when critical fields are present", () => {
+  it("marks define-question stage ready when critical fields are present", () => {
     let state = setField(createInitialState(), "topic", "Postpartum haemorrhage");
     state = setField(state, "population", "Women giving birth in Thai referral hospitals");
     state = setField(state, "researchQuestion", "Which modifiable factors predict severe postpartum haemorrhage?");
-    expect(validateState(state).readinessByStage.question).toBe("ready");
+    expect(validateState(state).readinessByStage["define-question"]).toBe("ready");
   });
 
   it("marks every stage blocked for invalid type, stage, and uploaded global blockers", () => {
@@ -85,35 +86,42 @@ describe("preflight validation", () => {
   });
 
   it("defines required fields for every lifecycle stage", () => {
-    expect(getRequiredFieldIds("observational", "question")).toEqual(["topic", "population", "researchQuestion"]);
-    expect(getRequiredFieldIds("observational", "evidence")).toContain("informationSources");
-    expect(getRequiredFieldIds("observational", "protocol")).toContain("resourcesTimeline");
-    expect(getRequiredFieldIds("observational", "ethics-governance")).toContain("existingInformation");
-    expect(getRequiredFieldIds("observational", "analysis-plan")).toContain("primaryOutcome");
-    expect(getRequiredFieldIds("observational", "proposal")).toContain("problemStatement");
-    expect(getRequiredFieldIds("observational", "conduct-quality")).toContain("existingInformation");
-    expect(getRequiredFieldIds("observational", "analysis-interpretation")).toContain("existingInformation");
-    expect(getRequiredFieldIds("observational", "reporting")).toContain("existingInformation");
-    expect(getRequiredFieldIds("observational", "dissemination-impact")).toContain("resourcesTimeline");
+    expect(getRequiredFieldIds("observational", "define-question")).toEqual(["topic", "population", "researchQuestion"]);
+    expect(getRequiredFieldIds("observational", "literature-review")).toEqual(["topic", "researchQuestion", "informationSources", "searchStrategy"]);
+    expect(getRequiredFieldIds("observational", "synthesize-information")).toEqual(["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"]);
+    expect(getRequiredFieldIds("observational", "identify-gaps")).toEqual(["topic", "researchQuestion", "researchGaps"]);
+    expect(getRequiredFieldIds("observational", "generate-hypotheses")).toEqual(["topic", "researchQuestion", "hypotheses"]);
+    expect(getRequiredFieldIds("observational", "outline-methodology")).toEqual(["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"]);
+    expect(getRequiredFieldIds("observational", "write-proposal")).toEqual(["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"]);
+  });
+
+  it("derives readiness and warnings from the approved lifecycle boundaries", () => {
+    const state = { ...createInitialState(), stageId: "outline-methodology" };
+    const result = validateState(state);
+    expect(Object.keys(result.readinessByStage)).toEqual(LIFECYCLE_STAGES.map(stage => stage.id));
+    expect(result.warnings.map(issue => issue.code)).toEqual(expect.arrayContaining(["missing-feasibility", "missing-registration", "missing-ethics", "missing-data-sharing"]));
+    expect(validateState({ ...createInitialState(), researchTypeId: "evidence-review", studyDesignId: "systematic-review", stageId: "literature-review" }).warnings)
+      .toContainEqual(expect.objectContaining({ code: "missing-registration" }));
   });
 
   it("adds design-specific requirements for diagnostic, prediction, qualitative, review, and AI work", () => {
-    expect(getRequiredFieldIds("diagnostic", "question")).toEqual(expect.arrayContaining(["targetCondition", "indexTest", "referenceStandard"]));
-    expect(getRequiredFieldIds("prediction", "question")).toEqual(expect.arrayContaining(["predictors", "developmentDataset", "validationDataset"]));
-    expect(getRequiredFieldIds("qualitative-mixed", "question")).toEqual(expect.arrayContaining(["sample", "phenomenon", "reflexivity"]));
-    expect(getRequiredFieldIds("evidence-review", "question")).toEqual(expect.arrayContaining(["reviewType", "reviewQuestion", "synthesisMethod"]));
-    expect(getRequiredFieldIds("ai-health-data", "question")).toEqual(expect.arrayContaining(["intendedUse", "datasetProvenance", "modelInputs", "performanceMeasures"]));
+    expect(getRequiredFieldIds("diagnostic", "define-question")).toEqual(expect.arrayContaining(["targetCondition", "indexTest", "referenceStandard"]));
+    expect(getRequiredFieldIds("prediction", "define-question")).toEqual(expect.arrayContaining(["predictors", "developmentDataset", "validationDataset"]));
+    expect(getRequiredFieldIds("qualitative-mixed", "define-question")).toEqual(expect.arrayContaining(["sample", "phenomenon", "reflexivity"]));
+    expect(getRequiredFieldIds("evidence-review", "define-question")).toEqual(expect.arrayContaining(["reviewType", "reviewQuestion", "synthesisMethod"]));
+    expect(getRequiredFieldIds("ai-health-data", "define-question")).toEqual(expect.arrayContaining(["intendedUse", "datasetProvenance", "modelInputs", "performanceMeasures"]));
   });
 
   it("adds context-specific readiness warnings without document text", () => {
     const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "protocol" },
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
       {
         topic: "Risk model",
         problemStatement: "Clinical risk stratification is inconsistent",
         population: "Adults in Thai referral hospitals",
         researchQuestion: "Can predictors estimate cardiovascular risk?",
         primaryOutcome: "One-year cardiovascular event",
+        methodologyOutline: "Prediction model validation",
         resourcesTimeline: "12 months",
         predictors: "Age and blood pressure",
         endpointTiming: "One year",
@@ -131,7 +139,7 @@ describe("preflight validation", () => {
 
   it("removes contextual warnings when their rendered controls are completed", () => {
     const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "protocol" },
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
       {
         registration: "Registered prospectively",
         ethicsApproval: "Local determination pending verification",

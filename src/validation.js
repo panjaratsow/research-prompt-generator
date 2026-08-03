@@ -2,16 +2,13 @@ import { LIFECYCLE_STAGES, getResearchType } from "./catalog/index.js";
 import { calculateEvidenceBudget } from "./evidence/core.js";
 
 const STAGE_REQUIRED_FIELDS = {
-  question: ["topic", "population", "researchQuestion"],
-  evidence: ["topic", "population", "researchQuestion", "informationSources"],
-  protocol: ["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "resourcesTimeline"],
-  "ethics-governance": ["topic", "population", "researchQuestion", "existingInformation"],
-  "analysis-plan": ["topic", "population", "researchQuestion", "primaryOutcome"],
-  proposal: ["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "resourcesTimeline"],
-  "conduct-quality": ["topic", "population", "researchQuestion", "primaryOutcome", "existingInformation"],
-  "analysis-interpretation": ["topic", "population", "researchQuestion", "primaryOutcome", "existingInformation"],
-  reporting: ["topic", "population", "researchQuestion", "primaryOutcome", "existingInformation"],
-  "dissemination-impact": ["topic", "population", "researchQuestion", "primaryOutcome", "resourcesTimeline"],
+  "define-question": ["topic", "population", "researchQuestion"],
+  "literature-review": ["topic", "researchQuestion", "informationSources", "searchStrategy"],
+  "synthesize-information": ["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"],
+  "identify-gaps": ["topic", "researchQuestion", "researchGaps"],
+  "generate-hypotheses": ["topic", "researchQuestion", "hypotheses"],
+  "outline-methodology": ["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"],
+  "write-proposal": ["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"],
 };
 
 const DESIGN_REQUIRED_FIELDS = {
@@ -70,23 +67,21 @@ function calculateReadiness(state, blocking) {
 
 function addContextualWarnings(state, warnings) {
   const { researchTypeId, stageId } = state;
-  const planningStages = new Set(["question", "evidence", "protocol", "proposal"]);
-  const ethicsStages = new Set(["protocol", "ethics-governance", "conduct-quality"]);
+  const methodsStages = new Set(["outline-methodology", "write-proposal"]);
 
-  if (["protocol", "proposal", "dissemination-impact"].includes(stageId)) {
+  if (methodsStages.has(stageId)) {
     warningForMissingField(warnings, state, "resourcesTimeline", "missing-feasibility", "validation.missingFeasibility");
-  }
-  if (planningStages.has(stageId)) {
     warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
-  }
-  if (ethicsStages.has(stageId)) {
     warningForMissingField(warnings, state, "ethicsApproval", "missing-ethics", "validation.missingEthics");
+    if (["observational", "prediction", "ai-health-data"].includes(researchTypeId)) {
+      warningForMissingField(warnings, state, "dataSharingPlan", "missing-data-sharing", "validation.missingDataSharing");
+    }
+    if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(state.studyDesignId)) {
+      warningForMissingField(warnings, state, "externalValidation", "missing-external-validation", "validation.missingExternalValidation");
+    }
   }
-  if (["observational", "prediction", "ai-health-data"].includes(researchTypeId)) {
-    warningForMissingField(warnings, state, "dataSharingPlan", "missing-data-sharing", "validation.missingDataSharing");
-  }
-  if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(state.studyDesignId)) {
-    warningForMissingField(warnings, state, "externalValidation", "missing-external-validation", "validation.missingExternalValidation");
+  if (researchTypeId === "evidence-review" && stageId === "literature-review") {
+    warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
   }
 }
 

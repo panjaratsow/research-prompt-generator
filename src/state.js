@@ -12,9 +12,9 @@ export const RESEARCHER_ROLES = Object.freeze([
 ]);
 export const EXPERIENCE_LEVELS = Object.freeze(["novice", "intermediate", "advanced"]);
 export const TARGET_OUTPUTS = Object.freeze([
-  "stage-appropriate-deliverable", "research-question", "evidence-synthesis",
-  "study-protocol", "ethics-governance-plan", "analysis-plan", "grant-proposal",
-  "journal-manuscript", "dissemination-plan",
+  "stage-appropriate-deliverable", "research-question", "literature-review-strategy",
+  "evidence-synthesis", "research-gap-analysis", "hypotheses-propositions",
+  "methodology-outline", "research-proposal",
 ]);
 export const CITATION_STYLES = Object.freeze(["Vancouver", "AMA", "APA 7", "None"]);
 
@@ -60,7 +60,7 @@ export function createInitialState() {
   return {
     researchTypeId: researchType.id,
     studyDesignId: researchType.defaultStudyDesignId,
-    stageId: "question",
+    stageId: "define-question",
     interfaceLocale: "th",
     evidenceMode: "planning",
     outputLanguage: "bilingual",

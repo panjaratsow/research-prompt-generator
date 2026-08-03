@@ -83,6 +83,42 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
+test("approved seven-step lifecycle renders exactly seven bilingual buttons in order", async ({ page }) => {
+  await page.goto("/");
+  const expectedIds = [
+    "define-question",
+    "literature-review",
+    "synthesize-information",
+    "identify-gaps",
+    "generate-hypotheses",
+    "outline-methodology",
+    "write-proposal",
+  ];
+  const buttons = page.locator('[data-action="stage"]');
+  await expect(buttons).toHaveCount(7);
+  expect(await buttons.evaluateAll(nodes => nodes.map(node => node.dataset.stageId))).toEqual(expectedIds);
+  await expect(buttons.nth(0)).toContainText("ขั้นที่ 1: กำหนดคำถามวิจัย");
+  await expect(buttons.nth(6)).toContainText("ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย");
+  await page.getByTestId("interface-language").selectOption("en");
+  await expect(buttons.nth(0)).toContainText("Step 1: Define the Research Question");
+  await expect(buttons.nth(6)).toContainText("Step 7: Write a Research Proposal");
+});
+
+test("uploaded synthesis includes the searchable-PDF SOURCE block", async ({ page }) => {
+  await page.goto("/");
+  await completePromptFields(page);
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+  await page.getByLabel("Evidence summary").fill("Source summary");
+  await page.getByLabel("Synthesis method").fill("Narrative synthesis");
+  await page.getByLabel("Evidence mode").selectOption("uploaded");
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+  await confirmDeidentified(page, "I confirm these files are deidentified");
+  await processEvidence(page);
+  await expect(page.getByTestId("source-S1")).toContainText("Ready");
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toContainText('<SOURCE id="S1" filename="searchable-evidence.pdf">');
+});
+
 test("preserves persistent setup and structured design across transitions", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
