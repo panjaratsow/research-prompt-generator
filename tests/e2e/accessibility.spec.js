@@ -12,11 +12,12 @@ async function openPromptDrawer(page) {
 
 test("has no automatically detectable WCAG A or AA violations in localized page and drawer states", async ({ page }) => {
   await page.goto("/");
-  await page.getByTestId("interface-language").selectOption("en");
   const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
-  const pageResults = await new AxeBuilder({ page }).withTags(tags).analyze();
-  expect(pageResults.violations).toEqual([]);
+  await expect(page.locator("html")).toHaveAttribute("lang", "th");
+  const thaiPageResults = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(thaiPageResults.violations).toEqual([]);
   await openPromptDrawer(page);
-  const drawerResults = await new AxeBuilder({ page }).withTags(tags).analyze();
-  expect(drawerResults.violations).toEqual([]);
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  const englishDrawerResults = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(englishDrawerResults.violations).toEqual([]);
 });
