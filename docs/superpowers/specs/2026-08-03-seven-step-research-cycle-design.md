@@ -168,7 +168,7 @@ Generated prompts will serialize the selected stage label and stage objective. E
 - distinguish supplied information, evidence-supported statements, synthesis, assumptions, and gaps;
 - retain citation, governance, methodological-quality, limitations, and expert-review sections;
 - state that hypotheses may be replaced by propositions or a justified non-hypothesis approach when required by the design;
-- avoid references to removed lifecycle stages.
+- never serialize a removed stage ID as the active lifecycle step. Ordinary domain terms such as evidence, analysis, reporting, or proposal may still appear where scientifically appropriate.
 
 ## Error Handling and Privacy
 
@@ -188,7 +188,7 @@ Unit tests must prove:
 - adaptive and required fields match each step;
 - readiness contains exactly seven entries;
 - standards resolve only for applicable family, subtype, and new stage;
-- prompts contain the selected stage objective and no former stage identifiers or labels;
+- prompts contain the selected stage objective and never serialize a former stage identifier as the active lifecycle step;
 - governance and evidence-boundary behavior remains intact.
 
 Browser tests must prove:
