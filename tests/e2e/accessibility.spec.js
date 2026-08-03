@@ -10,8 +10,9 @@ async function openPromptDrawer(page) {
   await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
 }
 
-test("has no automatically detectable WCAG A or AA violations in page and drawer states", async ({ page }) => {
+test("has no automatically detectable WCAG A or AA violations in localized page and drawer states", async ({ page }) => {
   await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
   const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"];
   const pageResults = await new AxeBuilder({ page }).withTags(tags).analyze();
   expect(pageResults.violations).toEqual([]);

@@ -83,28 +83,85 @@ test("renders the approved hybrid workspace", async ({ page }) => {
   await expect(page.getByTestId("standards-summary")).toContainText("STROBE");
 });
 
-test("approved seven-step lifecycle renders exactly seven bilingual buttons in order", async ({ page }) => {
+test("approved seven-step lifecycle renders translated labels, tasks, and adaptive fields", async ({ page }) => {
   await page.goto("/");
-  const expectedIds = [
-    "define-question",
-    "literature-review",
-    "synthesize-information",
-    "identify-gaps",
-    "generate-hypotheses",
-    "outline-methodology",
-    "write-proposal",
+  const stages = [
+    {
+      id: "define-question",
+      thaiLabel: "ขั้นที่ 1: กำหนดคำถามวิจัย",
+      englishLabel: "Step 1: Define the Research Question",
+      task: "Define a focused, significant, and feasible research question.",
+      fieldId: "problemStatement",
+    },
+    {
+      id: "literature-review",
+      thaiLabel: "ขั้นที่ 2: ทบทวนวรรณกรรม",
+      englishLabel: "Step 2: Review the Literature",
+      task: "Plan and conduct a reproducible, critical review of relevant literature.",
+      fieldId: "searchStrategy",
+    },
+    {
+      id: "synthesize-information",
+      thaiLabel: "ขั้นที่ 3: สังเคราะห์ข้อมูล",
+      englishLabel: "Step 3: Synthesize Information",
+      task: "Critically synthesize source-supported information, limitations, and certainty.",
+      fieldId: "evidenceCertainty",
+    },
+    {
+      id: "identify-gaps",
+      thaiLabel: "ขั้นที่ 4: ระบุช่องว่างการวิจัย",
+      englishLabel: "Step 4: Identify Research Gaps",
+      task: "Identify and justify research gaps from the reviewed and synthesized information.",
+      fieldId: "researchGaps",
+    },
+    {
+      id: "generate-hypotheses",
+      thaiLabel: "ขั้นที่ 5: สร้างสมมติฐาน",
+      englishLabel: "Step 5: Generate Hypotheses",
+      task: "Generate testable hypotheses, research propositions, or a justified non-hypothesis approach.",
+      fieldId: "hypotheses",
+    },
+    {
+      id: "outline-methodology",
+      thaiLabel: "ขั้นที่ 6: วางโครงร่างระเบียบวิธีวิจัย",
+      englishLabel: "Step 6: Outline the Research Methodology",
+      task: "Outline a rigorous, feasible, ethical, and design-appropriate research methodology.",
+      fieldId: "methodologyOutline",
+    },
+    {
+      id: "write-proposal",
+      thaiLabel: "ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย",
+      englishLabel: "Step 7: Write a Research Proposal",
+      task: "Integrate the research question, evidence, gaps, hypotheses, and methodology into a research proposal.",
+      fieldId: "resourcesTimeline",
+    },
   ];
   const buttons = page.locator('[data-action="stage"]');
   await expect(buttons).toHaveCount(7);
-  expect(await buttons.evaluateAll(nodes => nodes.map(node => node.dataset.stageId))).toEqual(expectedIds);
-  await expect(buttons.nth(0)).toContainText("ขั้นที่ 1: กำหนดคำถามวิจัย");
-  await expect(buttons.nth(6)).toContainText("ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย");
+  expect(await buttons.evaluateAll(nodes => nodes.map(node => node.dataset.stageId))).toEqual(stages.map(stage => stage.id));
+  for (const [index, stage] of stages.entries()) {
+    await expect(buttons.nth(index)).toContainText(stage.thaiLabel);
+  }
+
   await page.getByTestId("interface-language").selectOption("en");
-  await expect(buttons.nth(0)).toContainText("Step 1: Define the Research Question");
-  await expect(buttons.nth(6)).toContainText("Step 7: Write a Research Proposal");
+  for (const [index, stage] of stages.entries()) {
+    const button = buttons.nth(index);
+    await expect(button).toContainText(stage.englishLabel);
+    await button.click();
+    await expect(button).toHaveAttribute("aria-current", "step");
+    await expect(page.locator(".form-description")).toHaveText(stage.task);
+    await expect(page.locator(`[data-field-id="${stage.fieldId}"] input, [data-field-id="${stage.fieldId}"] textarea`)).toBeVisible();
+  }
 });
 
-test("uploaded synthesis includes the searchable-PDF SOURCE block", async ({ page }) => {
+test("uploaded synthesis deidentifies, includes, copies, and downloads the searchable-PDF SOURCE block", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.copiedPromptText = "";
+    Object.defineProperty(Navigator.prototype, "clipboard", {
+      configurable: true,
+      get: () => ({ writeText: async text => { window.copiedPromptText = text; } }),
+    });
+  });
   await page.goto("/");
   await completePromptFields(page);
   await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
@@ -115,8 +172,16 @@ test("uploaded synthesis includes the searchable-PDF SOURCE block", async ({ pag
   await confirmDeidentified(page, "I confirm these files are deidentified");
   await processEvidence(page);
   await expect(page.getByTestId("source-S1")).toContainText("Ready");
+  await expect(page.getByLabel("Include S1")).toBeChecked();
   await page.getByRole("button", { name: "Generate prompt" }).click();
-  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toContainText('<SOURCE id="S1" filename="searchable-evidence.pdf">');
+  const dialog = page.getByRole("dialog", { name: "Generated research prompt" });
+  await expect(dialog).toContainText('<SOURCE id="S1" filename="searchable-evidence.pdf">');
+  await page.getByRole("button", { name: "Copy prompt" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("Prompt copied.");
+  await expect.poll(() => page.evaluate(() => window.copiedPromptText)).toContain('<SOURCE id="S1" filename="searchable-evidence.pdf">');
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download prompt" }).click();
+  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-synthesize-information-/);
 });
 
 test("preserves persistent setup and structured design across transitions", async ({ page }) => {
@@ -231,7 +296,7 @@ test("copies, downloads, revokes the URL, and restores focus after Escape", asyn
   ), browserName === "chromium")).toContain("CITATION AND TRACEABILITY");
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download prompt" }).click();
-  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-question-/);
+  expect((await downloadPromise).suggestedFilename()).toMatch(/^research-prompt-observational-define-question-/);
   await expect.poll(() => page.evaluate(() => window.revokedPromptUrls.length)).toBe(1);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
