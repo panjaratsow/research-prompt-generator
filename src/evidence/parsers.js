@@ -4,6 +4,17 @@ const STABLE_ERROR_CODES = new Set([
   "image-only-pdf", "image-only-docx", "encrypted-pdf", "encrypted-docx",
 ]);
 const COMPOUND_FILE_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const CFB = Object.freeze({
+  freeSector: 0xffffffff,
+  endOfChain: 0xfffffffe,
+  fatSector: 0xfffffffd,
+  difatSector: 0xfffffffc,
+  noStream: 0xffffffff,
+  headerSize: 512,
+  directoryEntrySize: 128,
+  maxSectors: 65536,
+  maxDirectoryEntries: 65536,
+});
 
 function extensionFor(filename) {
   const match = /\.([^.]+)$/.exec(filename ?? "");
@@ -25,20 +36,276 @@ function hasCompoundFileSignature(arrayBuffer) {
     && COMPOUND_FILE_SIGNATURE.every((value, index) => bytes[index] === value);
 }
 
-function containsUtf16LeName(arrayBuffer, name) {
-  const bytes = new Uint8Array(arrayBuffer);
-  const encoded = Array.from(name, character => character.charCodeAt(0))
-    .flatMap(value => [value & 0xff, value >> 8]);
-  return bytes.some((_, start) =>
-    start + encoded.length <= bytes.length
-    && encoded.every((value, offset) => bytes[start + offset] === value)
-  );
+function regularSectorId(id, totalSectors) {
+  return Number.isInteger(id) && id >= 0 && id < totalSectors;
+}
+
+function readCfbHeader(bytes, view) {
+  if (bytes.byteLength < CFB.headerSize) return null;
+  if (view.getUint16(24, true) !== 0x003e || view.getUint16(28, true) !== 0xfffe) return null;
+  const majorVersion = view.getUint16(26, true);
+  const sectorShift = view.getUint16(30, true);
+  const sectorSize = 2 ** sectorShift;
+  if (!((majorVersion === 3 && sectorShift === 9) || (majorVersion === 4 && sectorShift === 12))) return null;
+  if (view.getUint16(32, true) !== 6 || view.getUint32(56, true) !== 4096) return null;
+  if ([...bytes.subarray(8, 24), ...bytes.subarray(34, 40)].some(value => value !== 0)) return null;
+  if (bytes.byteLength % sectorSize !== 0) return null;
+  if (majorVersion === 4 && bytes.subarray(CFB.headerSize, sectorSize).some(value => value !== 0)) return null;
+
+  const totalSectors = (bytes.byteLength / sectorSize) - 1;
+  const numberOfDirectorySectors = view.getUint32(40, true);
+  const numberOfFatSectors = view.getUint32(44, true);
+  const firstDirectorySector = view.getUint32(48, true);
+  const firstMiniFatSector = view.getUint32(60, true);
+  const numberOfMiniFatSectors = view.getUint32(64, true);
+  const firstDifatSector = view.getUint32(68, true);
+  const numberOfDifatSectors = view.getUint32(72, true);
+
+  if (totalSectors < 2 || totalSectors > CFB.maxSectors) return null;
+  if (majorVersion === 3 && numberOfDirectorySectors !== 0) return null;
+  if (majorVersion === 4 && (numberOfDirectorySectors === 0 || numberOfDirectorySectors > totalSectors)) return null;
+  if (numberOfFatSectors === 0 || numberOfFatSectors > totalSectors) return null;
+  if (!regularSectorId(firstDirectorySector, totalSectors)) return null;
+  if (numberOfMiniFatSectors > totalSectors || numberOfDifatSectors > totalSectors) return null;
+  if (numberOfMiniFatSectors === 0
+    ? firstMiniFatSector !== CFB.endOfChain
+    : !regularSectorId(firstMiniFatSector, totalSectors)) return null;
+  if (numberOfDifatSectors === 0
+    ? firstDifatSector !== CFB.endOfChain
+    : !regularSectorId(firstDifatSector, totalSectors)) return null;
+
+  return {
+    majorVersion,
+    sectorSize,
+    totalSectors,
+    numberOfDirectorySectors,
+    numberOfFatSectors,
+    firstDirectorySector,
+    firstMiniFatSector,
+    numberOfMiniFatSectors,
+    firstDifatSector,
+    numberOfDifatSectors,
+  };
+}
+
+function sectorOffset(header, sectorId) {
+  return (sectorId + 1) * header.sectorSize;
+}
+
+function collectCfbDifat(view, header) {
+  const fatSectorIds = [];
+  const fatSeen = new Set();
+  const difatSectorIds = [];
+  const difatSeen = new Set();
+  const addFatSector = sectorId => {
+    if (!regularSectorId(sectorId, header.totalSectors) || fatSeen.has(sectorId)) return false;
+    fatSeen.add(sectorId);
+    fatSectorIds.push(sectorId);
+    return true;
+  };
+
+  for (let index = 0; index < 109; index += 1) {
+    const sectorId = view.getUint32(76 + (index * 4), true);
+    if (fatSectorIds.length < header.numberOfFatSectors) {
+      if (!addFatSector(sectorId)) return null;
+    } else if (sectorId !== CFB.freeSector) return null;
+  }
+
+  if (header.numberOfFatSectors <= 109) {
+    if (header.numberOfDifatSectors !== 0 || fatSectorIds.length !== header.numberOfFatSectors) return null;
+    return { fatSectorIds, difatSectorIds };
+  }
+  if (header.numberOfDifatSectors === 0) return null;
+
+  const difatEntriesPerSector = (header.sectorSize / 4) - 1;
+  let currentSector = header.firstDifatSector;
+  for (let chainIndex = 0; chainIndex < header.numberOfDifatSectors; chainIndex += 1) {
+    if (!regularSectorId(currentSector, header.totalSectors)
+      || difatSeen.has(currentSector)
+      || fatSeen.has(currentSector)) return null;
+    difatSeen.add(currentSector);
+    difatSectorIds.push(currentSector);
+    const offset = sectorOffset(header, currentSector);
+    for (let entryIndex = 0; entryIndex < difatEntriesPerSector; entryIndex += 1) {
+      const sectorId = view.getUint32(offset + (entryIndex * 4), true);
+      if (fatSectorIds.length < header.numberOfFatSectors) {
+        if (!addFatSector(sectorId)) return null;
+      } else if (sectorId !== CFB.freeSector) return null;
+    }
+    const nextSector = view.getUint32(offset + (difatEntriesPerSector * 4), true);
+    const finalSector = chainIndex === header.numberOfDifatSectors - 1;
+    if (finalSector ? nextSector !== CFB.endOfChain : !regularSectorId(nextSector, header.totalSectors)) return null;
+    currentSector = nextSector;
+  }
+
+  if (fatSectorIds.length !== header.numberOfFatSectors) return null;
+  if (difatSectorIds.some(sectorId => fatSeen.has(sectorId))) return null;
+  return { fatSectorIds, difatSectorIds };
+}
+
+function readCfbFat(view, header, fatSectorIds, difatSectorIds) {
+  const entriesPerSector = header.sectorSize / 4;
+  if (fatSectorIds.length * entriesPerSector < header.totalSectors) return null;
+  const fat = new Uint32Array(header.totalSectors);
+  let targetIndex = 0;
+  for (const sectorId of fatSectorIds) {
+    const offset = sectorOffset(header, sectorId);
+    for (let entryIndex = 0; entryIndex < entriesPerSector && targetIndex < fat.length; entryIndex += 1) {
+      fat[targetIndex] = view.getUint32(offset + (entryIndex * 4), true);
+      targetIndex += 1;
+    }
+  }
+
+  const specialIds = new Set([CFB.freeSector, CFB.endOfChain, CFB.fatSector, CFB.difatSector]);
+  if (Array.from(fat, sectorId => regularSectorId(sectorId, header.totalSectors) || specialIds.has(sectorId)).some(valid => !valid)) {
+    return null;
+  }
+  if (fatSectorIds.some(sectorId => fat[sectorId] !== CFB.fatSector)) return null;
+  if (difatSectorIds.some(sectorId => fat[sectorId] !== CFB.difatSector)) return null;
+  return fat;
+}
+
+function readCfbChain(startSector, expectedLength, header, fat, reservedSectors) {
+  if (startSector === CFB.endOfChain) return expectedLength === 0 ? [] : null;
+  const chain = [];
+  const seen = new Set();
+  let currentSector = startSector;
+  while (chain.length <= header.totalSectors) {
+    if (!regularSectorId(currentSector, header.totalSectors)
+      || reservedSectors.has(currentSector)
+      || seen.has(currentSector)) return null;
+    seen.add(currentSector);
+    chain.push(currentSector);
+    const nextSector = fat[currentSector];
+    if (nextSector === CFB.endOfChain) break;
+    if (!regularSectorId(nextSector, header.totalSectors)) return null;
+    currentSector = nextSector;
+  }
+  if (chain.length > header.totalSectors) return null;
+  if (expectedLength != null && chain.length !== expectedLength) return null;
+  return chain;
+}
+
+function decodeCfbDirectoryName(bytes, view, entryOffset, nameLength) {
+  if (nameLength < 4 || nameLength > 64 || nameLength % 2 !== 0) return null;
+  if (view.getUint16(entryOffset + nameLength - 2, true) !== 0) return null;
+  if (bytes.subarray(entryOffset + nameLength, entryOffset + 64).some(value => value !== 0)) return null;
+  const codeUnits = [];
+  for (let offset = 0; offset < nameLength - 2; offset += 2) {
+    const codeUnit = view.getUint16(entryOffset + offset, true);
+    if (codeUnit === 0) return null;
+    codeUnits.push(codeUnit);
+  }
+  for (let index = 0; index < codeUnits.length; index += 1) {
+    const codeUnit = codeUnits[index];
+    if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+      const lowSurrogate = codeUnits[index + 1];
+      if (!(lowSurrogate >= 0xdc00 && lowSurrogate <= 0xdfff)) return null;
+      index += 1;
+    } else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) return null;
+  }
+  return String.fromCharCode(...codeUnits);
+}
+
+function readCfbDirectoryEntries(bytes, view, header, directorySectors) {
+  const entriesPerSector = header.sectorSize / CFB.directoryEntrySize;
+  const entryCount = directorySectors.length * entriesPerSector;
+  if (entryCount === 0 || entryCount > CFB.maxDirectoryEntries) return null;
+  const entries = [];
+  for (const sectorId of directorySectors) {
+    const sectorStart = sectorOffset(header, sectorId);
+    for (let entryIndex = 0; entryIndex < entriesPerSector; entryIndex += 1) {
+      const offset = sectorStart + (entryIndex * CFB.directoryEntrySize);
+      const nameLength = view.getUint16(offset + 64, true);
+      const type = bytes[offset + 66];
+      if (type === 0) {
+        if (nameLength !== 0) return null;
+        entries.push({ type, name: "", left: CFB.noStream, right: CFB.noStream, child: CFB.noStream });
+        continue;
+      }
+      if (![1, 2, 5].includes(type) || ![0, 1].includes(bytes[offset + 67])) return null;
+      const name = decodeCfbDirectoryName(bytes, view, offset, nameLength);
+      if (name == null) return null;
+      entries.push({
+        type,
+        name,
+        left: view.getUint32(offset + 68, true),
+        right: view.getUint32(offset + 72, true),
+        child: view.getUint32(offset + 76, true),
+      });
+    }
+  }
+  return entries;
+}
+
+function hasEncryptedOoxmlDirectoryStreams(entries) {
+  const validPointer = pointer => pointer === CFB.noStream || pointer < entries.length;
+  if (entries[0]?.type !== 5 || entries[0].name !== "Root Entry") return false;
+  if (entries.filter(entry => entry.type === 5).length !== 1) return false;
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (entry.type === 0) continue;
+    if (![entry.left, entry.right, entry.child].every(validPointer)) return false;
+    if (entry.type === 5 && (index !== 0 || entry.left !== CFB.noStream || entry.right !== CFB.noStream)) return false;
+    if (entry.type === 2 && entry.child !== CFB.noStream) return false;
+  }
+
+  const reached = new Set([0]);
+  const stack = entries[0].child === CFB.noStream ? [] : [entries[0].child];
+  const encryptedStreams = new Set();
+  while (stack.length) {
+    const entryId = stack.pop();
+    if (entryId === 0 || entryId >= entries.length || reached.has(entryId)) return false;
+    const entry = entries[entryId];
+    if (entry.type === 0 || entry.type === 5) return false;
+    reached.add(entryId);
+    if (entry.left !== CFB.noStream) stack.push(entry.left);
+    if (entry.right !== CFB.noStream) stack.push(entry.right);
+    if (entry.type === 1 && entry.child !== CFB.noStream) stack.push(entry.child);
+    if (entry.type === 2 && ["EncryptionInfo", "EncryptedPackage"].includes(entry.name)) {
+      if (encryptedStreams.has(entry.name)) return false;
+      encryptedStreams.add(entry.name);
+    }
+  }
+  if (entries.some((entry, index) => entry.type !== 0 && !reached.has(index))) return false;
+  return encryptedStreams.has("EncryptionInfo") && encryptedStreams.has("EncryptedPackage");
 }
 
 function isEncryptedOoxmlCompound(arrayBuffer) {
-  return hasCompoundFileSignature(arrayBuffer)
-    && containsUtf16LeName(arrayBuffer, "EncryptionInfo")
-    && containsUtf16LeName(arrayBuffer, "EncryptedPackage");
+  if (!hasCompoundFileSignature(arrayBuffer)) return false;
+  try {
+    const bytes = new Uint8Array(arrayBuffer);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const header = readCfbHeader(bytes, view);
+    if (!header) return false;
+    const difat = collectCfbDifat(view, header);
+    if (!difat) return false;
+    const fat = readCfbFat(view, header, difat.fatSectorIds, difat.difatSectorIds);
+    if (!fat) return false;
+    const reservedSectors = new Set([...difat.fatSectorIds, ...difat.difatSectorIds]);
+    const miniFatSectors = readCfbChain(
+      header.firstMiniFatSector,
+      header.numberOfMiniFatSectors,
+      header,
+      fat,
+      reservedSectors
+    );
+    if (!miniFatSectors) return false;
+    miniFatSectors.forEach(sectorId => reservedSectors.add(sectorId));
+    const expectedDirectorySectors = header.majorVersion === 4 ? header.numberOfDirectorySectors : null;
+    const directorySectors = readCfbChain(
+      header.firstDirectorySector,
+      expectedDirectorySectors,
+      header,
+      fat,
+      reservedSectors
+    );
+    if (!directorySectors) return false;
+    const entries = readCfbDirectoryEntries(bytes, view, header, directorySectors);
+    return entries ? hasEncryptedOoxmlDirectoryStreams(entries) : false;
+  } catch {
+    return false;
+  }
 }
 
 function parseCsv(text) {

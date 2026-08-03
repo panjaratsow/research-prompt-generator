@@ -179,9 +179,9 @@ This correction round started from the clean `9a02ae5` worktree and addressed on
 
 ### Residual finding 3: encrypted OOXML classification
 
-- Code: `src/evidence/parsers.js` classifies encrypted OOXML only when the OLE compound signature and both UTF-16 `EncryptionInfo` and `EncryptedPackage` names are present. Signature-only compound input proceeds to DOCX parsing and becomes the stack-free `malformed-file` outcome.
-- Fixtures: `tests/fixtures/encrypted-ooxml.docx` contains an OLE header, directory sector, FAT sector, and both named stream directory entries. `tests/fixtures/malformed-compound.docx` contains only the compound signature.
-- Tests: `tests/unit/parsers.test.js` verifies the encrypted fixture's names and stable `encrypted-docx` result, and verifies the malformed fixture's signature, absent names, and `malformed-file` result. No OCR path or invented text was added.
+- Code: `src/evidence/parsers.js` classifies encrypted OOXML only after bounded CFB/OLE structural validation of the header, DIFAT/FAT references, directory chain, directory-entry names/types, and reachable `EncryptionInfo` and `EncryptedPackage` stream entries. Signature or marker strings alone are insufficient.
+- Fixtures: `tests/fixtures/encrypted-ooxml.docx` contains a valid minimal OLE header, directory sector, FAT sector, and both named stream directory entries. `tests/fixtures/malformed-compound.docx` contains only the compound signature, while `tests/fixtures/malformed-marker-compound.docx` adds both UTF-16 marker strings to an invalid compound header.
+- Tests: `tests/unit/parsers.test.js` verifies the valid fixture's stable `encrypted-docx` result and verifies signature-only, arbitrary-marker, invalid reference/count/marker, directory-loop, malformed-name-length, and wrong-object-type cases as `malformed-file`. No OCR path, payload parsing, or invented text was added.
 
 ### Residual finding 4: catalogue and release assertion precision
 
@@ -206,6 +206,39 @@ This correction round started from the clean `9a02ae5` worktree and addressed on
 - Browser total: 112/112, including Axe 4/4.
 - Responsive in-app browser inspection: no page-level horizontal overflow or non-scroll-container control overflow at 1440x1000, 1024x768, 390x844, or 360x800. At 1024x768 the three workspace columns measured 240/489/280 px within a 1009 px document. At 390x844 and 360x800, setup, lifecycle, form, and standards regions stacked at the full 375 px and 345 px document widths respectively. The viewport override was reset and the inspection tab closed.
 - Hygiene: `test-results` was removed after result capture; no `playwright-report` or `blob-report` directory existed. Owned server PID 33504 was stopped after all browser work. No unrelated PID was touched and no ledger file was edited.
+- `git diff --check`: PASS before this report and rerun after the report before commit.
+
+## Final OLE structural correction
+
+Date: 2026-08-03
+Baseline: clean `b856c93`
+
+### Implementation and bounds
+
+- `src/evidence/parsers.js` replaces signature/string scanning with a defensive CFB reader. It validates CFB minor/major versions, byte order, sector and mini-sector shifts, sector alignment, directory/FAT/mini-FAT/DIFAT counts, and first-sector references.
+- Header DIFAT entries and any DIFAT extension chain must resolve the declared unique FAT sectors exactly. FAT entries must reference in-range sectors or defined CFB special values, and FAT/DIFAT sectors must carry their required markers.
+- Mini-FAT and directory chains are traversed through FAT with exact-count checks where defined, reserved-sector exclusion, out-of-range rejection, and loop detection.
+- Directory sectors are parsed only as 128-byte entries. Used entries require valid object types, color flags, bounded even UTF-16 name lengths, a terminal null, zero padding, valid surrogate pairs, and in-range sibling/child references.
+- Classification requires one root entry, a fully reachable acyclic directory tree, and reachable object-type `2` stream entries named exactly `EncryptionInfo` and `EncryptedPackage`. Arbitrary marker bytes, malformed entries, orphan entries, duplicate target streams, and cycles fail closed to normal DOCX parsing and the stack-free `malformed-file` outcome.
+- Work has independent hard caps of 65,536 sectors and 65,536 directory entries; the application's existing 20 MiB upload limit further bounds the normal ingestion path. The parser does not read stream payload content and adds no dependency, network, persistence, or OCR path.
+- `scripts/create-test-fixtures.mjs` retains the 1,536-byte structurally valid minimal encrypted fixture and creates the 512-byte malformed marker fixture with an OLE signature and both UTF-16 marker strings in an invalid zeroed header.
+
+### OLE TDD evidence
+
+- Initial RED: parser suite 1 failed / 21 passed. The marker-only malformed fixture was incorrectly returned as `encrypted-docx` instead of `malformed-file`.
+- Expanded RED before implementation: parser suite 7 failed / 21 passed. The seven failures covered arbitrary markers, an out-of-range FAT reference, a mismatched FAT count, an invalid FAT-sector marker, a directory-chain loop, an odd UTF-16 directory-name length, and a target entry with storage type instead of stream type.
+- GREEN after implementation: parser suite 28/28. The post-transport-resume focused rerun also passed 28/28 before final verification.
+
+### OLE final verification
+
+- Literal `npm run vendor`: PASS with the bundled Node/npm launcher paths.
+- Literal `npm test`: PASS, 9 files and 214/214 tests.
+- Playwright `desktop-chromium`: 28/28, including Axe 1/1.
+- Playwright `mobile-chromium`: 28/28, including Axe 1/1.
+- Playwright `desktop-firefox`: 28/28, including Axe 1/1; the established permitted process context was used for Mozilla SWGL.
+- Playwright `desktop-webkit`: 28/28, including Axe 1/1.
+- Browser total: 112/112, including Axe 4/4.
+- Hygiene: `test-results` was removed after evidence capture; no `playwright-report` or `blob-report` directory was present. Owned server PID 36236 was stopped, no unrelated process was touched, and no ledger file was edited.
 - `git diff --check`: PASS before this report and rerun after the report before commit.
 
 ## Remaining conditions

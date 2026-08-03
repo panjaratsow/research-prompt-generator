@@ -103,6 +103,29 @@ describe("evidence parsers", () => {
     await expect(parseEvidenceFile(file("malformed.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
   });
 
+  it("rejects marker strings in a structurally invalid compound file", async () => {
+    const bytes = await readFile("tests/fixtures/malformed-marker-compound.docx");
+
+    expect([...bytes.subarray(0, 8)]).toEqual([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    expect(bytes.includes(Buffer.from("EncryptionInfo", "utf16le"))).toBe(true);
+    expect(bytes.includes(Buffer.from("EncryptedPackage", "utf16le"))).toBe(true);
+    await expect(parseEvidenceFile(file("malformed-markers.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
+  });
+
+  it.each([
+    ["an out-of-range FAT sector reference", bytes => bytes.writeUInt32LE(99, 76)],
+    ["a mismatched FAT sector count", bytes => bytes.writeUInt32LE(2, 44)],
+    ["an invalid FAT sector marker", bytes => bytes.writeInt32LE(-2, 1028)],
+    ["a directory-chain loop", bytes => bytes.writeUInt32LE(0, 1024)],
+    ["an odd UTF-16 directory name length", bytes => bytes.writeUInt16LE(63, 640 + 64)],
+    ["a target directory entry with storage type", bytes => { bytes[640 + 66] = 1; }],
+  ])("rejects an encrypted-marker compound with %s", async (_description, mutate) => {
+    const bytes = Buffer.from(await readFile("tests/fixtures/encrypted-ooxml.docx"));
+    mutate(bytes);
+
+    await expect(parseEvidenceFile(file("malformed-structure.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
+  });
+
   it("dispatches PDF files with configured parser resources", async () => {
     const calls = [];
     const result = await parseEvidenceFile(file("evidence.PDF"), {

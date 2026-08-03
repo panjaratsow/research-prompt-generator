@@ -64,6 +64,11 @@ await writeFile("tests/fixtures/encrypted-ooxml.docx", encryptedOoxmlCompound())
 const malformedCompound = Buffer.alloc(512);
 compoundSignature.copy(malformedCompound);
 await writeFile("tests/fixtures/malformed-compound.docx", malformedCompound);
+const malformedMarkerCompound = Buffer.alloc(512);
+compoundSignature.copy(malformedMarkerCompound);
+Buffer.from("EncryptionInfo", "utf16le").copy(malformedMarkerCompound, 128);
+Buffer.from("EncryptedPackage", "utf16le").copy(malformedMarkerCompound, 256);
+await writeFile("tests/fixtures/malformed-marker-compound.docx", malformedMarkerCompound);
 await writeFile("tests/fixtures/empty.txt", "");
 await writeFile("tests/fixtures/invalid-utf8.txt", Buffer.from([0xc3, 0x28]));
 await writeFile("tests/fixtures/malformed.csv", "source,finding\nS1,\"unterminated\n");
