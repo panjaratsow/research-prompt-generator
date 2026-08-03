@@ -90,8 +90,22 @@ describe("evidence parsers", () => {
 
     expect(bytes.includes(Buffer.from("EncryptionInfo", "utf16le"))).toBe(true);
     expect(bytes.includes(Buffer.from("EncryptedPackage", "utf16le"))).toBe(true);
+    expect(bytes.readUInt32LE(640 + 116)).toBe(0);
+    expect(bytes.readUInt32LE(640 + 120)).toBe(32);
+    expect(bytes.readUInt32LE(768 + 116)).toBe(4);
+    expect(bytes.readUInt32LE(768 + 120)).toBe(4096);
 
     await expect(parseEvidenceFile(file("encrypted.docx", bytes), { mammoth })).rejects.toEqual({ code: "encrypted-docx" });
+  });
+
+  it("rejects structurally valid encrypted markers with empty unallocated streams", async () => {
+    const bytes = await readFile("tests/fixtures/empty-stream-encrypted-ooxml.docx");
+
+    expect(bytes.readInt32LE(640 + 116)).toBe(-2);
+    expect(bytes.readUInt32LE(640 + 120)).toBe(0);
+    expect(bytes.readInt32LE(768 + 116)).toBe(-2);
+    expect(bytes.readUInt32LE(768 + 120)).toBe(0);
+    await expect(parseEvidenceFile(file("empty-streams.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
   });
 
   it("classifies a signature-only malformed compound DOCX as malformed-file", async () => {
@@ -117,6 +131,8 @@ describe("evidence parsers", () => {
     ["a mismatched FAT sector count", bytes => bytes.writeUInt32LE(2, 44)],
     ["an invalid FAT sector marker", bytes => bytes.writeInt32LE(-2, 1028)],
     ["a directory-chain loop", bytes => bytes.writeUInt32LE(0, 1024)],
+    ["a looping miniFAT sector chain", bytes => bytes.writeUInt32LE(2, 1024 + (2 * 4))],
+    ["an unallocated miniFAT sector", bytes => bytes.writeUInt32LE(0xffffffff, 1024 + (2 * 4))],
     ["an odd UTF-16 directory name length", bytes => bytes.writeUInt16LE(63, 640 + 64)],
     ["a target directory entry with storage type", bytes => { bytes[640 + 66] = 1; }],
   ])("rejects an encrypted-marker compound with %s", async (_description, mutate) => {
@@ -124,6 +140,26 @@ describe("evidence parsers", () => {
     mutate(bytes);
 
     await expect(parseEvidenceFile(file("malformed-structure.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
+  });
+
+  it.each([
+    ["an out-of-range root mini-stream start", bytes => bytes.writeUInt32LE(99, 512 + 116)],
+    ["a truncated root mini-stream chain", bytes => bytes.writeUInt32LE(1024, 512 + 120)],
+    ["a looping root mini-stream chain", bytes => bytes.writeUInt32LE(3, 1024 + (3 * 4))],
+    ["an unallocated root mini-stream sector", bytes => bytes.writeUInt32LE(0xffffffff, 1024 + (3 * 4))],
+    ["an out-of-range mini-stream start", bytes => bytes.writeUInt32LE(99, 640 + 116)],
+    ["a truncated mini-stream chain", bytes => bytes.writeUInt32LE(128, 640 + 120)],
+    ["a looping mini-stream chain", bytes => bytes.writeUInt32LE(0, 1536)],
+    ["an unallocated mini-stream chain", bytes => bytes.writeUInt32LE(0xffffffff, 1536)],
+    ["an out-of-range regular stream start", bytes => bytes.writeUInt32LE(99, 768 + 116)],
+    ["a truncated regular stream chain", bytes => bytes.writeUInt32LE(4608, 768 + 120)],
+    ["a looping regular stream chain", bytes => bytes.writeUInt32LE(4, 1024 + (11 * 4))],
+    ["an unallocated regular stream chain", bytes => bytes.writeUInt32LE(0xffffffff, 1024 + (4 * 4))],
+  ])("rejects an encrypted-marker compound with %s", async (_description, mutate) => {
+    const bytes = Buffer.from(await readFile("tests/fixtures/encrypted-ooxml.docx"));
+    mutate(bytes);
+
+    await expect(parseEvidenceFile(file("malformed-allocation.docx", bytes), { mammoth })).rejects.toEqual({ code: "malformed-file" });
   });
 
   it("dispatches PDF files with configured parser resources", async () => {

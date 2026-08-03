@@ -219,9 +219,9 @@ Baseline: clean `b856c93`
 - Header DIFAT entries and any DIFAT extension chain must resolve the declared unique FAT sectors exactly. FAT entries must reference in-range sectors or defined CFB special values, and FAT/DIFAT sectors must carry their required markers.
 - Mini-FAT and directory chains are traversed through FAT with exact-count checks where defined, reserved-sector exclusion, out-of-range rejection, and loop detection.
 - Directory sectors are parsed only as 128-byte entries. Used entries require valid object types, color flags, bounded even UTF-16 name lengths, a terminal null, zero padding, valid surrogate pairs, and in-range sibling/child references.
-- Classification requires one root entry, a fully reachable acyclic directory tree, and reachable object-type `2` stream entries named exactly `EncryptionInfo` and `EncryptedPackage`. Arbitrary marker bytes, malformed entries, orphan entries, duplicate target streams, and cycles fail closed to normal DOCX parsing and the stack-free `malformed-file` outcome.
+- Classification requires one root entry, a fully reachable acyclic directory tree, and reachable object-type `2` stream entries named exactly `EncryptionInfo` and `EncryptedPackage`. Arbitrary marker bytes, malformed entries, orphan entries, duplicate target streams, and cycles fail closed to normal DOCX parsing and the stack-free `malformed-file` outcome. The allocation correction below further requires both target streams to have valid non-empty storage chains.
 - Work has independent hard caps of 65,536 sectors and 65,536 directory entries; the application's existing 20 MiB upload limit further bounds the normal ingestion path. The parser does not read stream payload content and adds no dependency, network, persistence, or OCR path.
-- `scripts/create-test-fixtures.mjs` retains the 1,536-byte structurally valid minimal encrypted fixture and creates the 512-byte malformed marker fixture with an OLE signature and both UTF-16 marker strings in an invalid zeroed header.
+- At this structural checkpoint, `scripts/create-test-fixtures.mjs` created a 1,536-byte directory/FAT fixture and a 512-byte malformed marker fixture. The stream-allocation correction below supersedes the former with allocated regular-FAT and mini-stream content and retains the zero-allocation form only as a negative fixture.
 
 ### OLE TDD evidence
 
@@ -240,6 +240,39 @@ Baseline: clean `b856c93`
 - Browser total: 112/112, including Axe 4/4.
 - Hygiene: `test-results` was removed after evidence capture; no `playwright-report` or `blob-report` directory was present. Owned server PID 36236 was stopped, no unrelated process was touched, and no ledger file was edited.
 - `git diff --check`: PASS before this report and rerun after the report before commit.
+
+## Final OLE stream-allocation correction
+
+Date: 2026-08-03
+Baseline: clean `e9999b5`
+
+### Allocation implementation and bounds
+
+- `scripts/create-test-fixtures.mjs` now creates a 6,656-byte structurally and allocationally valid encrypted OOXML CFB. Its `EncryptionInfo` entry is a non-empty 32-byte mini-stream backed by mini-sector `0`, the root mini-stream is a non-empty 64-byte regular-FAT allocation, and `EncryptedPackage` is a non-empty 4,096-byte regular stream backed by the exact eight-sector FAT chain `4..11`.
+- `tests/fixtures/empty-stream-encrypted-ooxml.docx` truthfully preserves the 1,536-byte marker-bearing directory/FAT structure with both target entries at size `0` and `ENDOFCHAIN`. It must and does resolve to `malformed-file`, not `encrypted-docx`.
+- `src/evidence/parsers.js` retains each used directory entry's start sector and safe 64-bit stream size. Version 3 entries reject non-zero high size words; all allocation arithmetic is checked against bounded sector capacities before traversal.
+- The declared miniFAT sector chain is read only through the already validated regular FAT. The root entry must have a consistent start/size pair and, when non-empty, an exact non-overlapping regular-FAT chain. Its size establishes the bounded root mini-stream capacity.
+- MiniFAT entries are capped at 1,048,576, must be free beyond root capacity, and may reference only in-capacity mini-sectors or defined free/end markers within capacity. Each target mini-stream requires a non-empty, exact-length, non-looping, in-range, independently allocated mini-sector chain.
+- Each target at or above the validated 4,096-byte mini-stream cutoff requires a non-empty exact-length regular-FAT chain. Directory, FAT, DIFAT, miniFAT, root, and target regular sectors cannot overlap; free/special references, truncation, loops, out-of-range IDs, and insufficient chains fail closed.
+- The classifier reads allocation metadata only. It does not decode `EncryptionInfo`, `EncryptedPackage`, or any other payload and adds no network, dependency, persistence, or OCR path.
+
+### Allocation TDD evidence
+
+- Initial RED after replacing the positive fixture and adding the zero-allocation plus target-chain cases: parser suite 8 failed / 28 passed (36 total). Every failure returned `encrypted-docx` where `malformed-file` was required.
+- Expanded RED before production changes: parser suite 13 failed / 30 passed (43 total). Added failures covered root mini-stream start/truncation/loop/allocation and regular-stream out-of-range cases; existing miniFAT-chain and wrong-object-type checks remained green.
+- GREEN after the bounded allocation implementation: parser suite 43/43. The positive fixture returns the stable stack-free `encrypted-docx` code; zero-length, out-of-range, truncated, looping, unallocated, capacity-exceeding, and wrong-type cases return `malformed-file` without invoking OCR or inventing text.
+
+### Allocation final verification
+
+- Literal `npm test`: PASS, 9 files and 229/229 tests.
+- Literal `npm run vendor`: PASS with the bundled Node/npm launcher paths and no vendored-file diff.
+- Playwright `desktop-chromium`: 28/28, including Axe 1/1.
+- Playwright `mobile-chromium`: 28/28, including Axe 1/1 and the responsive overflow checks.
+- Playwright `desktop-firefox`: 28/28, including Axe 1/1; the established permitted process context was used for Mozilla SWGL.
+- Playwright `desktop-webkit`: 28/28, including Axe 1/1.
+- Browser total: 112/112, including Axe 4/4. All projects used the same owned external server; bundled Node server PID 3336 was path-verified and stopped after completion.
+- Playwright recorded `status: passed` with no failed test IDs. `test-results` was removed after evidence capture; no `playwright-report` or `blob-report` directory was present.
+- `git diff --check`: PASS before this report and rerun after report/artifact cleanup before commit. No ledger file was edited.
 
 ## Remaining conditions
 

@@ -12,7 +12,9 @@ const CFB = Object.freeze({
   noStream: 0xffffffff,
   headerSize: 512,
   directoryEntrySize: 128,
+  miniSectorSize: 64,
   maxSectors: 65536,
+  maxMiniSectors: 1048576,
   maxDirectoryEntries: 65536,
 });
 
@@ -47,7 +49,8 @@ function readCfbHeader(bytes, view) {
   const sectorShift = view.getUint16(30, true);
   const sectorSize = 2 ** sectorShift;
   if (!((majorVersion === 3 && sectorShift === 9) || (majorVersion === 4 && sectorShift === 12))) return null;
-  if (view.getUint16(32, true) !== 6 || view.getUint32(56, true) !== 4096) return null;
+  const miniStreamCutoff = view.getUint32(56, true);
+  if (view.getUint16(32, true) !== 6 || miniStreamCutoff !== 4096) return null;
   if ([...bytes.subarray(8, 24), ...bytes.subarray(34, 40)].some(value => value !== 0)) return null;
   if (bytes.byteLength % sectorSize !== 0) return null;
   if (majorVersion === 4 && bytes.subarray(CFB.headerSize, sectorSize).some(value => value !== 0)) return null;
@@ -77,6 +80,7 @@ function readCfbHeader(bytes, view) {
   return {
     majorVersion,
     sectorSize,
+    miniStreamCutoff,
     totalSectors,
     numberOfDirectorySectors,
     numberOfFatSectors,
@@ -186,6 +190,45 @@ function readCfbChain(startSector, expectedLength, header, fat, reservedSectors)
   return chain;
 }
 
+function readCfbMiniFat(view, header, miniFatSectors) {
+  const entriesPerSector = header.sectorSize / 4;
+  const entryCount = miniFatSectors.length * entriesPerSector;
+  if (entryCount > CFB.maxMiniSectors) return null;
+  const miniFat = new Uint32Array(entryCount);
+  let targetIndex = 0;
+  for (const sectorId of miniFatSectors) {
+    const offset = sectorOffset(header, sectorId);
+    for (let entryIndex = 0; entryIndex < entriesPerSector; entryIndex += 1) {
+      miniFat[targetIndex] = view.getUint32(offset + (entryIndex * 4), true);
+      targetIndex += 1;
+    }
+  }
+  return miniFat;
+}
+
+function readCfbMiniChain(startSector, expectedLength, miniFat, miniStreamCapacity) {
+  if (!Number.isInteger(expectedLength)
+    || expectedLength <= 0
+    || expectedLength > miniStreamCapacity
+    || !Number.isInteger(startSector)
+    || startSector < 0
+    || startSector >= miniStreamCapacity) return null;
+  const chain = [];
+  const seen = new Set();
+  let currentSector = startSector;
+  while (chain.length <= miniStreamCapacity) {
+    if (currentSector >= miniStreamCapacity || seen.has(currentSector)) return null;
+    seen.add(currentSector);
+    chain.push(currentSector);
+    const nextSector = miniFat[currentSector];
+    if (nextSector === CFB.endOfChain) break;
+    if (!Number.isInteger(nextSector) || nextSector >= miniStreamCapacity) return null;
+    currentSector = nextSector;
+  }
+  if (chain.length > miniStreamCapacity || chain.length !== expectedLength) return null;
+  return chain;
+}
+
 function decodeCfbDirectoryName(bytes, view, entryOffset, nameLength) {
   if (nameLength < 4 || nameLength > 64 || nameLength % 2 !== 0) return null;
   if (view.getUint16(entryOffset + nameLength - 2, true) !== 0) return null;
@@ -220,55 +263,131 @@ function readCfbDirectoryEntries(bytes, view, header, directorySectors) {
       const type = bytes[offset + 66];
       if (type === 0) {
         if (nameLength !== 0) return null;
-        entries.push({ type, name: "", left: CFB.noStream, right: CFB.noStream, child: CFB.noStream });
+        entries.push({
+          type,
+          name: "",
+          left: CFB.noStream,
+          right: CFB.noStream,
+          child: CFB.noStream,
+          startSector: CFB.endOfChain,
+          streamSize: 0,
+        });
         continue;
       }
       if (![1, 2, 5].includes(type) || ![0, 1].includes(bytes[offset + 67])) return null;
       const name = decodeCfbDirectoryName(bytes, view, offset, nameLength);
       if (name == null) return null;
+      const streamSizeHigh = view.getUint32(offset + 124, true);
+      if (header.majorVersion === 3 && streamSizeHigh !== 0) return null;
+      const streamSize = (streamSizeHigh * 0x100000000) + view.getUint32(offset + 120, true);
+      if (!Number.isSafeInteger(streamSize)) return null;
       entries.push({
         type,
         name,
         left: view.getUint32(offset + 68, true),
         right: view.getUint32(offset + 72, true),
         child: view.getUint32(offset + 76, true),
+        startSector: view.getUint32(offset + 116, true),
+        streamSize,
       });
     }
   }
   return entries;
 }
 
-function hasEncryptedOoxmlDirectoryStreams(entries) {
+function findEncryptedOoxmlDirectoryStreams(entries) {
   const validPointer = pointer => pointer === CFB.noStream || pointer < entries.length;
-  if (entries[0]?.type !== 5 || entries[0].name !== "Root Entry") return false;
-  if (entries.filter(entry => entry.type === 5).length !== 1) return false;
+  if (entries[0]?.type !== 5 || entries[0].name !== "Root Entry") return null;
+  if (entries.filter(entry => entry.type === 5).length !== 1) return null;
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
     if (entry.type === 0) continue;
-    if (![entry.left, entry.right, entry.child].every(validPointer)) return false;
-    if (entry.type === 5 && (index !== 0 || entry.left !== CFB.noStream || entry.right !== CFB.noStream)) return false;
-    if (entry.type === 2 && entry.child !== CFB.noStream) return false;
+    if (![entry.left, entry.right, entry.child].every(validPointer)) return null;
+    if (entry.type === 5 && (index !== 0 || entry.left !== CFB.noStream || entry.right !== CFB.noStream)) return null;
+    if (entry.type === 2 && entry.child !== CFB.noStream) return null;
   }
 
   const reached = new Set([0]);
   const stack = entries[0].child === CFB.noStream ? [] : [entries[0].child];
-  const encryptedStreams = new Set();
+  const encryptedStreams = new Map();
   while (stack.length) {
     const entryId = stack.pop();
-    if (entryId === 0 || entryId >= entries.length || reached.has(entryId)) return false;
+    if (entryId === 0 || entryId >= entries.length || reached.has(entryId)) return null;
     const entry = entries[entryId];
-    if (entry.type === 0 || entry.type === 5) return false;
+    if (entry.type === 0 || entry.type === 5) return null;
     reached.add(entryId);
     if (entry.left !== CFB.noStream) stack.push(entry.left);
     if (entry.right !== CFB.noStream) stack.push(entry.right);
     if (entry.type === 1 && entry.child !== CFB.noStream) stack.push(entry.child);
     if (entry.type === 2 && ["EncryptionInfo", "EncryptedPackage"].includes(entry.name)) {
-      if (encryptedStreams.has(entry.name)) return false;
-      encryptedStreams.add(entry.name);
+      if (encryptedStreams.has(entry.name)) return null;
+      encryptedStreams.set(entry.name, entry);
     }
   }
-  if (entries.some((entry, index) => entry.type !== 0 && !reached.has(index))) return false;
-  return encryptedStreams.has("EncryptionInfo") && encryptedStreams.has("EncryptedPackage");
+  if (entries.some((entry, index) => entry.type !== 0 && !reached.has(index))) return null;
+  if (!encryptedStreams.has("EncryptionInfo") || !encryptedStreams.has("EncryptedPackage")) return null;
+  return {
+    root: entries[0],
+    streams: [encryptedStreams.get("EncryptionInfo"), encryptedStreams.get("EncryptedPackage")],
+  };
+}
+
+function validateCfbMiniFat(miniFat, miniStreamCapacity) {
+  if (!Number.isInteger(miniStreamCapacity)
+    || miniStreamCapacity < 0
+    || miniStreamCapacity > CFB.maxMiniSectors
+    || miniStreamCapacity > miniFat.length) return false;
+  if (miniStreamCapacity === 0) return miniFat.length === 0;
+  if (miniFat.length === 0) return false;
+  for (let index = 0; index < miniFat.length; index += 1) {
+    const sectorId = miniFat[index];
+    if (index >= miniStreamCapacity) {
+      if (sectorId !== CFB.freeSector) return false;
+    } else if (sectorId !== CFB.freeSector
+      && sectorId !== CFB.endOfChain
+      && sectorId >= miniStreamCapacity) return false;
+  }
+  return true;
+}
+
+function validateEncryptedOoxmlAllocations(directory, header, fat, miniFat, reservedSectors) {
+  const root = directory.root;
+  if (root.streamSize === 0) {
+    if (root.startSector !== CFB.endOfChain) return false;
+  } else {
+    const expectedRootSectors = Math.ceil(root.streamSize / header.sectorSize);
+    if (expectedRootSectors > header.totalSectors) return false;
+    const rootSectors = readCfbChain(root.startSector, expectedRootSectors, header, fat, reservedSectors);
+    if (!rootSectors) return false;
+    rootSectors.forEach(sectorId => reservedSectors.add(sectorId));
+  }
+
+  const miniStreamCapacity = Math.ceil(root.streamSize / CFB.miniSectorSize);
+  if (!validateCfbMiniFat(miniFat, miniStreamCapacity)) return false;
+  const usedMiniSectors = new Set();
+
+  for (const stream of directory.streams) {
+    if (!Number.isSafeInteger(stream.streamSize) || stream.streamSize <= 0) return false;
+    if (stream.streamSize < header.miniStreamCutoff) {
+      const expectedMiniSectors = Math.ceil(stream.streamSize / CFB.miniSectorSize);
+      const miniSectors = readCfbMiniChain(
+        stream.startSector,
+        expectedMiniSectors,
+        miniFat,
+        miniStreamCapacity
+      );
+      if (!miniSectors || miniSectors.some(sectorId => usedMiniSectors.has(sectorId))) return false;
+      miniSectors.forEach(sectorId => usedMiniSectors.add(sectorId));
+      continue;
+    }
+
+    const expectedSectors = Math.ceil(stream.streamSize / header.sectorSize);
+    if (expectedSectors > header.totalSectors) return false;
+    const streamSectors = readCfbChain(stream.startSector, expectedSectors, header, fat, reservedSectors);
+    if (!streamSectors) return false;
+    streamSectors.forEach(sectorId => reservedSectors.add(sectorId));
+  }
+  return true;
 }
 
 function isEncryptedOoxmlCompound(arrayBuffer) {
@@ -301,8 +420,15 @@ function isEncryptedOoxmlCompound(arrayBuffer) {
       reservedSectors
     );
     if (!directorySectors) return false;
+    directorySectors.forEach(sectorId => reservedSectors.add(sectorId));
     const entries = readCfbDirectoryEntries(bytes, view, header, directorySectors);
-    return entries ? hasEncryptedOoxmlDirectoryStreams(entries) : false;
+    if (!entries) return false;
+    const directory = findEncryptedOoxmlDirectoryStreams(entries);
+    if (!directory) return false;
+    const miniFat = readCfbMiniFat(view, header, miniFatSectors);
+    return miniFat
+      ? validateEncryptedOoxmlAllocations(directory, header, fat, miniFat, reservedSectors)
+      : false;
   } catch {
     return false;
   }
