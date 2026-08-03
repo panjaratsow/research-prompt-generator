@@ -2,40 +2,66 @@
 
 ## Scope and Method
 
-This is a release-content review of prompts generated locally on 2026-08-02. Each scenario used the application prompt engine with bilingual output, Vancouver citation setting, the listed structured subtype/design, lifecycle stage, and evidence mode, and structured fields that identify unavailable details as information to be supplied. Uploaded-mode scenarios used a deidentified synthetic source. Expected frameworks and standards were resolved from the application catalogue reviewed on 2026-08-01.
+This document defines bounded human review for prompts produced by the local, static application. It does not change bilingual app labels, retain uploaded materials, add backend services, or create storage. Uploaded files remain memory-only and local to the active session.
 
-`Pass` records an application-output check against the criterion named in the table; it is not a claim that every row has an exact full-output automated assertion. Exact reporting-standard set assertions cover scenario 2 (STROBE and no RECORD), scenario 4 (TRIPOD and no TRIPOD+AI), and scenario 9 (TRIPOD+AI plus CLAIM, with RECORD, CONSORT-AI, and DECIDE-AI each forbidden). Other catalogue tests exercise the named positive or forbidden mappings without certifying the complete generated prompt. The Thai/English clarity columns assess whether the prompt states the selected output-language contract clearly; they do not assess a downstream translation. No value is a certification of a study, standard, translation, legal compliance, ethics approval, local IRB approval, Thai PDPA compliance, or downstream AI output. Expert human review remains required before use.
+The seven scenarios below correspond to the implemented research stages. They are decision support only. They never imply approval, certification, legal compliance, ethics approval, registration, or standards compliance. A generated prompt must be reviewed by qualified humans before use.
 
-At the start of the final fix wave, guideline selection for scenarios 2, 4, 5, 7, 9, and 10 was treated as `Revise` because family-only matching added inapplicable standards or omitted the underlying design. Those outcomes were reassessed after the structured-design predicates and the applicable exact or targeted catalogue assertions passed. The table below records the corrected final application-output review, not the pre-fix result.
+## 1. Focused Medical Research Question
 
-## Scenario Design
+**Expected:** A stage-specific question structure appropriate to the selected research type, explicit population or context, intervention/exposure or phenomenon where relevant, comparator where relevant, outcome or purpose, evidence boundary, uncertainties, applicable standards, and required human reviewers.
 
-| # | Topic | Research type / stage / evidence mode | Expected framework and standards | Required methodological checks | Ethics and privacy checks |
-| --- | --- | --- | --- | --- | --- |
-| 1 | Pragmatic randomized trial of postpartum haemorrhage training | Randomized trial / Pragmatic randomized trial / Protocol / Planning | PICO; SPIRIT 2025, ICH E6(R3) | Estimand, effect estimate, randomization, allocation concealment, blinding, missing data, multiplicity, equity, feasibility, clinical relevance | Do not claim ethics approval or registration; assess consent, Thai PDPA, local IRB, data governance, and training-risk safeguards as applicable. |
-| 2 | Multicentre cohort of neonatal iron status | Observational / Cohort / Reporting / Web research | PECO; STROBE; excludes RECORD unless routinely collected data are selected | Estimand, target comparison, time zero, confounding, residual confounding, missing data, multiplicity, equity | Verify consent or lawful basis, Thai PDPA, site governance, local IRB requirements, and no unsupported cohort claims. |
-| 3 | Diagnostic accuracy of a sepsis biomarker | Diagnostic / Diagnostic accuracy / Reporting / Uploaded | PIRD; STARD | Accuracy measures with uncertainty, reference standard, threshold, spectrum bias, verification bias, missing data | Use only selected deidentified sources; do not reproduce identifiers or infer approvals, consent, or diagnostic claims. |
-| 4 | External validation of a cardiovascular risk model | Prediction / External validation / Reporting / Web research | PICOTS, CHARMS; TRIPOD; excludes TRIPOD+AI without an AI design | Outcome timing, predictors, discrimination, calibration, internal and external validation, overfitting, updating | Check governance for validation data, equity, Thai PDPA, local IRB, and no claim of validated clinical use without evidence. |
-| 5 | Systematic review of simulation-based medical education | Evidence review / Systematic review / Reporting / Uploaded | PICO, PCC; PRISMA 2020, GRADE; excludes PRISMA-ScR | Eligibility, search, selection, extraction, risk of bias, heterogeneity, certainty, publication bias | Restrict evidence to selected deidentified sources; preserve source IDs and do not invent bibliographic details. |
-| 6 | Qualitative study of family decision-making in intensive care | Qualitative or mixed methods / Qualitative / Reporting / Planning | SPIDER; COREQ, SRQR | Sampling, data collection, analytic rigor, reflexivity, researcher-participant relationship, integration if mixed methods | Require sensitive-participant protections, consent, Thai PDPA, local IRB review, and no inference from absent evidence. |
-| 7 | Mixed-methods evaluation of competency-based assessment | Medical education / Mixed methods / Reporting / Web research | PICO, CIMO; inherited COREQ and SRQR; excludes GREET and SQUIRE-EDU for this design | Educational outcomes, comparison, assessment validity, mixed-methods integration, reflexivity, missing data, equity, feasibility | Consider learner privacy, consent, Thai PDPA, institutional approvals, and safe handling of assessment data. |
-| 8 | Animal model of ischemia-reperfusion injury | Laboratory or animal / In vivo animal / Protocol / Planning | FINER; ARRIVE 2.0 | Experimental unit, randomization, blinding, sample-size rationale, attrition, reagent validation, welfare | Require applicable animal-care approval and institutional governance; never claim approval or compliance without supplied evidence. |
-| 9 | External validation of an AI chest-radiograph model | AI and health data / Medical imaging external validation / Reporting / Uploaded | PICOTS; TRIPOD+AI, CLAIM; excludes RECORD, CONSORT-AI, and DECIDE-AI | Intended use, dataset provenance, reference standard, leakage prevention, performance, calibration, external validation, fairness | Use only selected deidentified sources; assess data rights, Thai PDPA, local IRB, WHO AI governance, bias, fairness, and clinical deployment governance. |
-| 10 | Implementation and cost evaluation of antimicrobial stewardship | Implementation, QI, or economic evaluation / Implementation plus economic evaluation / Reporting / Web research | PICO, CIMO; StaRI, TIDieR, CHEERS 2022; excludes SQUIRE | Strategy, context, outcomes, fidelity, feasibility, perspective, time horizon, uncertainty, equity | Assess site governance, operational data permissions, Thai PDPA, local IRB or QI review, and no unsupported cost claims. |
+**Forbidden:** Invented evidence or identifiers; unsupported gap claims; a forced hypothesis when the selected design does not call for one; implied ethics, legal, registration, or standards compliance.
 
-## Generated-Prompt Review
+**Review:** Subject expert and methodologist. Include a statistician for quantitative questions, an information specialist when searchability or terminology needs review, IRB/privacy review for sensitive human data, animal-welfare review for animal work, and AI review for AI-enabled research.
 
-| # | Methodological fit | Evidence boundary | Ethics/privacy | Guideline selection | Citation traceability | Missing-information handling | Thai clarity | English clarity | Reviewer sign-off |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 2 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 3 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 4 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 5 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 6 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 7 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 8 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 9 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
-| 10 | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Pass | Not signed: expert human review required |
+## 2. Reproducible Literature Review
 
-There are no remaining `Revise` values in this bounded application-output review. The unsigned reviewer column is intentional and remains an open release-use condition: this review cannot replace qualified scientific, statistical, information-specialist, Thai-language, ethics, privacy, legal, Thai PDPA, local IRB, animal-welfare, or AI-governance review.
+**Expected:** A reproducible review structure with the research question, sources and search boundary, eligibility logic, planned screening and extraction approach, uncertainty handling, applicable review standards, and required human reviewers. The prompt distinguishes supplied evidence from information still needed.
+
+**Forbidden:** Invented citations, source identifiers, search results, or eligibility decisions; unsupported gap claims; forced hypotheses for inappropriate designs; implied ethics, legal, registration, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include an information specialist for search strategy and reproducibility, a statistician for quantitative synthesis, IRB/privacy review when source handling includes sensitive data, animal-welfare review when applicable, and AI review for AI-enabled review workflows.
+
+## 3. Source-Grounded Synthesis
+
+**Expected:** A synthesis limited to the selected or supplied sources, with traceable claims, explicit evidence boundary, uncertainty and disagreement handling, applicable reporting standards, and required human reviewers. Missing information remains marked as unavailable rather than inferred.
+
+**Forbidden:** Invented evidence or identifiers; claims beyond the available sources; unsupported gap claims; forced hypotheses for inappropriate designs; implied ethics, legal, registration, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include a statistician for pooled estimates or quantitative interpretation, an information specialist for source traceability, IRB/privacy review for sensitive sources, animal-welfare review for animal evidence, and AI review for AI-generated or AI-health-data synthesis.
+
+## 4. Documented Gaps
+
+**Expected:** A gap record tied to the reviewed evidence, including what is known, what remains uncertain, why the limitation matters, the evidence boundary, applicable standards, and required human reviewers. The prompt distinguishes an evidence-supported gap from a proposed area for inquiry.
+
+**Forbidden:** Invented evidence or identifiers; unsupported gap claims; forced hypotheses for inappropriate designs; implied ethics, legal, registration, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include an information specialist when adequacy of the search or source coverage is in question, a statistician for gaps involving effect precision or heterogeneity, IRB/privacy review for human-data implications, animal-welfare review when applicable, and AI review for AI-related gaps.
+
+## 5. Design-Appropriate Hypotheses or Propositions
+
+**Expected:** Hypotheses or propositions that fit the selected design, research question, evidence boundary, uncertainty, applicable standards, and required human reviewers. Exploratory, qualitative, descriptive, or implementation designs may use aims, propositions, or questions instead of a causal or testable hypothesis.
+
+**Forbidden:** Invented evidence or identifiers; unsupported gap claims; hypotheses forced onto inappropriate designs; implied ethics, legal, registration, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include a statistician for estimands, hypotheses, and analysis implications, an information specialist when propositions depend on a review boundary, IRB/privacy review for sensitive human research, animal-welfare review for animal studies, and AI review for AI-enabled interventions or datasets.
+
+## 6. Methodology With Applicable Standards and Governance
+
+**Expected:** A design-appropriate methodology with study population or setting, procedures, outcomes or analytic focus, evidence boundary, uncertainties, applicable standards, governance considerations, and required human reviewers. Standards guide planning and reporting choices; governance items are presented as questions to assess, not as completed obligations.
+
+**Forbidden:** Invented evidence or identifiers; unsupported gap claims; forced hypotheses for inappropriate designs; implied ethics, legal, registration, animal-care, privacy, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include a statistician for design, sample size, estimands, and analysis; an information specialist for evidence-review methods; IRB/privacy review for human participants, personal data, or local data rules; animal-welfare review for animal work; and AI review for AI models, datasets, deployment, bias, or fairness.
+
+## 7. Integrated Proposal
+
+**Expected:** An integrated, stage-linked proposal that connects the question, evidence review, synthesis, gaps, hypotheses or propositions where appropriate, and methodology. It states the evidence boundary, uncertainties, applicable standards, governance questions, and required human reviewers.
+
+**Forbidden:** Invented evidence or identifiers; unsupported gap claims; forced hypotheses for inappropriate designs; implied ethics, legal, registration, animal-care, privacy, or standards compliance.
+
+**Review:** Subject expert and methodologist. Include a statistician for quantitative design and analysis, an information specialist for literature-review integrity, IRB/privacy review for human participants or data, animal-welfare review for animal research, and AI review for AI-enabled methods, data, or clinical decision support.
+
+## Release-Use Boundary
+
+Reviewing a generated prompt against this matrix is not approval or certification of a study, protocol, review, analysis, clinical action, legal position, ethics submission, registration, or standard. It supports informed human decision-making only.
