@@ -76,7 +76,13 @@ async function openPromptDrawer(page) {
 test("renders the approved hybrid workspace", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
-  await expect(page.getByRole("heading", { name: "Research Prompt Studio" })).toBeVisible();
+  const facultyEmblem = page.getByRole("img", {
+    name: "ตราคณะแพทยศาสตร์ มหาวิทยาลัยศรีนครินทรวิโรฒ / Faculty of Medicine, Srinakharinwirot University",
+  });
+  await expect(facultyEmblem).toBeVisible();
+  await expect(facultyEmblem).toHaveAttribute("src", "./assets/faculty-medicine-swu-emblem.png");
+  await expect(page.getByText("คณะแพทยศาสตร์ มหาวิทยาลัยศรีนครินทรวิโรฒ", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Research Prompt Studio", level: 1 })).toHaveCount(1);
   await expect(page.getByTestId("setup-bar")).toBeVisible();
   await expect(page.getByTestId("lifecycle-rail")).toBeVisible();
   await expect(page.getByTestId("adaptive-form")).toBeVisible();
@@ -252,12 +258,16 @@ test("shows applicability-aware official standards links and review date", async
 test("serves all local assets beneath the GitHub Pages path prefix", async ({ page }) => {
   const requestPaths = [];
   const failedResponses = [];
+  const emblemResponses = [];
   page.on("request", request => {
     const url = new URL(request.url());
     if (url.hostname === "127.0.0.1") requestPaths.push(url.pathname);
   });
   page.on("response", response => {
     const url = new URL(response.url());
+    if (url.hostname === "127.0.0.1" && url.pathname === "/research-prompt-generator/assets/faculty-medicine-swu-emblem.png") {
+      emblemResponses.push(response.status());
+    }
     if (url.hostname === "127.0.0.1" && response.status() >= 400) {
       failedResponses.push(`${response.status()} ${url.pathname}`);
     }
@@ -279,8 +289,10 @@ test("serves all local assets beneath the GitHub Pages path prefix", async ({ pa
   await expect(page.getByTestId("source-S1")).toContainText("Ready");
 
   expect(failedResponses).toEqual([]);
+  expect(emblemResponses).toEqual([200]);
   expect(requestPaths).toEqual(expect.arrayContaining([
     "/research-prompt-generator/app.js",
+    "/research-prompt-generator/assets/faculty-medicine-swu-emblem.png",
     "/research-prompt-generator/src/evidence/browser-adapters.js",
     "/research-prompt-generator/site.webmanifest",
     "/research-prompt-generator/favicon.svg",
@@ -385,11 +397,33 @@ test("confirms reset and keeps prompt output language independent from interface
 });
 
 test("keeps the workspace regions visible without horizontal page overflow on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
   await page.goto("/");
   await expect(page.getByTestId("setup-bar")).toBeVisible();
   await expect(page.getByTestId("lifecycle-rail")).toBeVisible();
   await expect(page.getByTestId("adaptive-form")).toBeVisible();
   await expect(page.getByTestId("standards-summary")).toBeVisible();
+  const geometry = await page.evaluate(() => {
+    const bounds = selector => {
+      const rect = document.querySelector(selector).getBoundingClientRect();
+      return { right: rect.right, bottom: rect.bottom, top: rect.top, width: rect.width, height: rect.height };
+    };
+    return {
+      viewportWidth: window.innerWidth,
+      header: bounds(".app-header"),
+      brand: bounds(".brand-lockup"),
+      emblem: bounds(".brand-emblem"),
+      title: bounds(".brand-lockup h1"),
+      subtitle: bounds(".brand-subtitle"),
+      actions: bounds(".header-actions"),
+    };
+  });
+  expect(geometry.emblem.height).toBeLessThanOrEqual(40.5);
+  expect(geometry.emblem.width / geometry.emblem.height).toBeCloseTo(2.345, 2);
+  expect(geometry.brand.right).toBeLessThanOrEqual(geometry.viewportWidth);
+  expect(geometry.actions.right).toBeLessThanOrEqual(geometry.viewportWidth);
+  expect(geometry.brand.bottom).toBeLessThanOrEqual(geometry.actions.top);
+  expect(geometry.title.bottom).toBeLessThanOrEqual(geometry.subtitle.top);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 });
 
