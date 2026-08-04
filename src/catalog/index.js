@@ -1,5 +1,5 @@
 export { RESEARCH_TYPES, RESEARCH_TYPE_IDS } from "./research-types.js";
-export { LIFECYCLE_STAGES, STAGE_IDS } from "./lifecycle-stages.js";
+export { LIFECYCLE_STAGES, STAGE_IDS, STAGE_TARGET_OUTPUTS } from "./lifecycle-stages.js";
 export { STANDARD_IDS, STANDARDS, STANDARDS_REVIEWED_ON } from "./standards.js";
 
 import { LIFECYCLE_STAGES } from "./lifecycle-stages.js";

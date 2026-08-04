@@ -1,6 +1,7 @@
 import {
   RESEARCH_TYPE_IDS,
   STAGE_IDS,
+  STAGE_TARGET_OUTPUTS,
   getAdaptiveFieldIds,
   getResearchType,
   getStudyDesign,
@@ -41,6 +42,30 @@ function assertEnum(value, values) {
 function filterCompatibleFields(fields, typeId, stageId, studyDesignId) {
   const allowed = new Set(getAdaptiveFieldIds(typeId, stageId, studyDesignId));
   return Object.fromEntries(Object.entries(fields).filter(([id]) => allowed.has(id)));
+}
+
+function hasMeaningfulFieldValue(value) {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (Array.isArray(value)) return value.some(hasMeaningfulFieldValue);
+  return value != null;
+}
+
+export function getIncompatiblePopulatedFieldIds(fields, allowedFieldIds) {
+  const allowed = allowedFieldIds instanceof Set ? allowedFieldIds : new Set(allowedFieldIds);
+  return Object.entries(fields ?? {})
+    .filter(([id, value]) => !allowed.has(id) && hasMeaningfulFieldValue(value))
+    .map(([id]) => id);
+}
+
+export function getCompatibleTargetOutputs(stageId) {
+  assertEnum(stageId, STAGE_IDS);
+  return ["stage-appropriate-deliverable", STAGE_TARGET_OUTPUTS[stageId]];
+}
+
+export function resolveTargetOutput(stageId, targetOutput) {
+  assertEnum(stageId, STAGE_IDS);
+  assertEnum(targetOutput, TARGET_OUTPUTS);
+  return STAGE_TARGET_OUTPUTS[stageId];
 }
 
 function cloneFieldValue(value) {
@@ -85,6 +110,9 @@ export function setField(state, fieldId, value) {
 export function setSetupField(state, fieldId, value) {
   if (!SETUP_FIELDS.has(fieldId)) throw new RangeError(`Unknown setup field: ${fieldId}`);
   if (SETUP_ENUMS[fieldId]) assertEnum(value, SETUP_ENUMS[fieldId]);
+  if (fieldId === "targetOutput" && !getCompatibleTargetOutputs(state.stageId).includes(value)) {
+    throw new RangeError(`Target output ${value} is incompatible with stage ${state.stageId}`);
+  }
   return { ...state, [fieldId]: value };
 }
 
@@ -103,7 +131,7 @@ export function setResearchType(state, nextTypeId, confirmed = false) {
   assertEnum(nextTypeId, RESEARCH_TYPE_IDS);
   const nextType = getResearchType(nextTypeId);
   const allowed = new Set(getAdaptiveFieldIds(nextTypeId, state.stageId, nextType.defaultStudyDesignId));
-  const incompatible = Object.keys(state.fields).filter(id => !allowed.has(id));
+  const incompatible = getIncompatiblePopulatedFieldIds(state.fields, allowed);
   if (incompatible.length && !confirmed) {
     return { state, needsConfirmation: true, incompatible };
   }
@@ -122,9 +150,13 @@ export function setResearchType(state, nextTypeId, confirmed = false) {
 
 export function setStage(state, nextStageId) {
   assertEnum(nextStageId, STAGE_IDS);
+  const compatibleTargetOutputs = getCompatibleTargetOutputs(nextStageId);
   return {
     ...state,
     stageId: nextStageId,
+    targetOutput: compatibleTargetOutputs.includes(state.targetOutput)
+      ? state.targetOutput
+      : "stage-appropriate-deliverable",
     fields: filterCompatibleFields(state.fields, state.researchTypeId, nextStageId, state.studyDesignId),
   };
 }

@@ -1,5 +1,5 @@
 import {
-  createInitialState, createPublicWorkspaceState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
+  createInitialState, createPublicWorkspaceState, getIncompatiblePopulatedFieldIds, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
   setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType,
   setSetupField, setStage, setStudyDesign, replaceSources,
 } from "./src/state.js";
@@ -135,7 +135,7 @@ async function processEvidenceFiles() {
 
 function requestStage(nextId) {
   const allowed = new Set(getAdaptiveFieldIds(state.researchTypeId, nextId, state.studyDesignId));
-  const incompatible = Object.keys(state.fields).filter(id => !allowed.has(id));
+  const incompatible = getIncompatiblePopulatedFieldIds(state.fields, allowed);
   if (incompatible.length) beginConfirmation("stage", nextId, incompatible);
   else update(setStage(state, nextId), "set-stage");
 }

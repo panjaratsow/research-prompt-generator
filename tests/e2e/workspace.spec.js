@@ -96,7 +96,7 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
     {
       id: "literature-review",
       thaiLabel: "ขั้นที่ 2: ทบทวนวรรณกรรม",
-      englishLabel: "Step 2: Review the Literature",
+      englishLabel: "Step 2: Conduct a Literature Review",
       task: "Plan and conduct a reproducible, critical review of relevant literature.",
       fieldId: "searchStrategy",
     },
@@ -124,7 +124,7 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
     {
       id: "outline-methodology",
       thaiLabel: "ขั้นที่ 6: วางโครงร่างระเบียบวิธีวิจัย",
-      englishLabel: "Step 6: Outline the Research Methodology",
+      englishLabel: "Step 6: Outline Research Methodology",
       task: "Outline a rigorous, feasible, ethical, and design-appropriate research methodology.",
       fieldId: "methodologyOutline",
     },
@@ -151,6 +151,31 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
     await expect(button).toHaveAttribute("aria-current", "step");
     await expect(page.locator(".form-description")).toHaveText(stage.task);
     await expect(page.locator(`[data-field-id="${stage.fieldId}"] input, [data-field-id="${stage.fieldId}"] textarea`)).toBeVisible();
+  }
+});
+
+test("target-output selector permits only the deliverable compatible with each stage", async ({ page }) => {
+  const stageOutputs = [
+    ["define-question", "research-question"],
+    ["literature-review", "literature-review-strategy"],
+    ["synthesize-information", "evidence-synthesis"],
+    ["identify-gaps", "research-gap-analysis"],
+    ["generate-hypotheses", "hypotheses-propositions"],
+    ["outline-methodology", "methodology-outline"],
+    ["write-proposal", "research-proposal"],
+  ];
+
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  for (const [stageId, targetOutput] of stageOutputs) {
+    await page.locator(`[data-action="stage"][data-stage-id="${stageId}"]`).click();
+    const selector = page.getByLabel("Target output");
+    expect(await selector.locator("option").evaluateAll(options => options.filter(option => !option.disabled).map(option => option.value))).toEqual([
+      "stage-appropriate-deliverable",
+      targetOutput,
+    ]);
+    await selector.selectOption(targetOutput);
+    await expect(selector).toHaveValue(targetOutput);
   }
 });
 
@@ -191,11 +216,11 @@ test("preserves persistent setup and structured design across transitions", asyn
   await page.getByLabel("Experience level").selectOption("advanced");
   await page.getByLabel("Scientific field").fill("Neonatology");
   await page.getByLabel("Country and institutional setting").fill("Thailand, university teaching hospital");
-  await page.getByLabel("Target output").selectOption("research-proposal");
   await page.getByLabel("Citation style").selectOption("AMA");
+  await page.locator('[data-action="stage"][data-stage-id="write-proposal"]').click();
+  await page.getByLabel("Target output").selectOption("research-proposal");
   await page.getByLabel("Research type").selectOption("medical-education");
   await page.getByLabel("Study subtype or design").selectOption("education-observational");
-  await page.locator('[data-action="stage"][data-stage-id="write-proposal"]').click();
 
   await expect(page.getByLabel("Researcher role")).toHaveValue("postgraduate-student");
   await expect(page.getByLabel("Experience level")).toHaveValue("advanced");
@@ -447,14 +472,24 @@ test("confirms incompatible stage changes and supports modal keyboard controls",
     window.workspaceStates = [];
     window.addEventListener("workspace:statechange", event => window.workspaceStates.push(event.detail.state));
   });
-  await page.getByLabel(/problem statement/i).fill("Delayed diagnosis");
-  expect(await page.evaluate(() => window.workspaceStates.at(-1).fields.problemStatement)).toBe("Delayed diagnosis");
-  const evidenceStage = page.getByRole("button", { name: /review the literature/i });
+  await page.getByLabel(/problem statement/i).fill("Touched then cleared");
+  await page.getByLabel(/problem statement/i).fill("   ");
+  const evidenceStage = page.getByRole("button", { name: /conduct a literature review/i });
   await expect(evidenceStage).toHaveAttribute("data-action", "stage");
   await expect(evidenceStage).toHaveAttribute("data-stage-id", "literature-review");
   await evidenceStage.click();
   expect(pageErrors).toEqual([]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(evidenceStage).toHaveAttribute("aria-current", "step");
+
+  const questionStage = page.getByRole("button", { name: /define the research question/i });
+  await questionStage.click();
+  await page.getByLabel(/problem statement/i).fill("Delayed diagnosis");
+  expect(await page.evaluate(() => window.workspaceStates.at(-1).fields.problemStatement)).toBe("Delayed diagnosis");
+  await evidenceStage.click();
   const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Changing research stage will clear these fields:");
+  await expect(dialog).not.toContainText("Changing research type");
   await expect(dialog).toContainText("Problem statement");
   await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
   await page.keyboard.press("Shift+Tab");

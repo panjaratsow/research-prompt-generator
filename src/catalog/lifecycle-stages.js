@@ -9,3 +9,13 @@ export const LIFECYCLE_STAGES = [
 ];
 
 export const STAGE_IDS = LIFECYCLE_STAGES.map(stage => stage.id);
+
+export const STAGE_TARGET_OUTPUTS = Object.freeze({
+  "define-question": "research-question",
+  "literature-review": "literature-review-strategy",
+  "synthesize-information": "evidence-synthesis",
+  "identify-gaps": "research-gap-analysis",
+  "generate-hypotheses": "hypotheses-propositions",
+  "outline-methodology": "methodology-outline",
+  "write-proposal": "research-proposal",
+});

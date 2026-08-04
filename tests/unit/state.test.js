@@ -32,6 +32,29 @@ describe("state transitions", () => {
     ]);
   });
 
+  it.each([
+    ["define-question", "research-question"],
+    ["literature-review", "literature-review-strategy"],
+    ["synthesize-information", "evidence-synthesis"],
+    ["identify-gaps", "research-gap-analysis"],
+    ["generate-hypotheses", "hypotheses-propositions"],
+    ["outline-methodology", "methodology-outline"],
+    ["write-proposal", "research-proposal"],
+  ])("accepts only the %s stage deliverable", (stageId, targetOutput) => {
+    const state = setStage(createInitialState(), stageId);
+    expect(setSetupField(state, "targetOutput", targetOutput).targetOutput).toBe(targetOutput);
+
+    const incompatible = targetOutput === "research-proposal" ? "research-question" : "research-proposal";
+    expect(() => setSetupField(state, "targetOutput", incompatible)).toThrow(RangeError);
+  });
+
+  it("normalizes an incompatible explicit deliverable when the stage changes", () => {
+    let state = setStage(createInitialState(), "write-proposal");
+    state = setSetupField(state, "targetOutput", "research-proposal");
+
+    expect(setStage(state, "literature-review").targetOutput).toBe("stage-appropriate-deliverable");
+  });
+
   it("uses approved defaults", () => {
     expect(createInitialState()).toMatchObject({
       researchTypeId: "observational",
@@ -68,6 +91,14 @@ describe("state transitions", () => {
     expect(confirmed.state.fields.exposure).toBeUndefined();
   });
 
+  it("does not confirm a research-type transition for touched then cleared fields", () => {
+    const cleared = setField(createInitialState(), "exposure", "  \t ");
+    const transition = setResearchType(cleared, "qualitative-mixed", false);
+
+    expect(transition.needsConfirmation).toBe(false);
+    expect(transition.incompatible).toEqual([]);
+  });
+
   it("preserves compatible fields across research-type and stage transitions", () => {
     const state = setField(createInitialState(), "population", "Adults in Bangkok");
     const typeTransition = setResearchType(state, "randomized-trial", true);
@@ -83,6 +114,7 @@ describe("state transitions", () => {
     state = setSetupField(state, "experienceLevel", "advanced");
     state = setSetupField(state, "scientificField", "Neonatology");
     state = setSetupField(state, "institutionSetting", "Thailand, university teaching hospital");
+    state = setStage(state, "write-proposal");
     state = setSetupField(state, "targetOutput", "research-proposal");
     state = setSetupField(state, "citationStyle", "AMA");
 

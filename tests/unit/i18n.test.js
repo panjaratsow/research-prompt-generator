@@ -10,11 +10,22 @@ describe("localized copy", () => {
     expect(t("en", "actions.reset")).toBe("Start a new workspace");
   });
 
-  it("localizes the approved bilingual seven-step lifecycle", () => {
-    expect(t("en", "stages.define-question")).toBe("Step 1: Define the Research Question");
-    expect(t("en", "stages.write-proposal")).toBe("Step 7: Write a Research Proposal");
-    expect(t("th", "stages.define-question")).toBe("ขั้นที่ 1: กำหนดคำถามวิจัย");
-    expect(t("th", "stages.write-proposal")).toBe("ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย");
+  it.each([
+    ["define-question", "Step 1: Define the Research Question", "ขั้นที่ 1: กำหนดคำถามวิจัย"],
+    ["literature-review", "Step 2: Conduct a Literature Review", "ขั้นที่ 2: ทบทวนวรรณกรรม"],
+    ["synthesize-information", "Step 3: Synthesize Information", "ขั้นที่ 3: สังเคราะห์ข้อมูล"],
+    ["identify-gaps", "Step 4: Identify Research Gaps", "ขั้นที่ 4: ระบุช่องว่างการวิจัย"],
+    ["generate-hypotheses", "Step 5: Generate Hypotheses", "ขั้นที่ 5: สร้างสมมติฐาน"],
+    ["outline-methodology", "Step 6: Outline Research Methodology", "ขั้นที่ 6: วางโครงร่างระเบียบวิธีวิจัย"],
+    ["write-proposal", "Step 7: Write a Research Proposal", "ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย"],
+  ])("localizes the approved %s lifecycle label", (stageId, english, thai) => {
+    expect(t("en", `stages.${stageId}`)).toBe(english);
+    expect(t("th", `stages.${stageId}`)).toBe(thai);
+  });
+
+  it("uses stage-specific bilingual confirmation copy", () => {
+    expect(t("en", "stageConfirmText")).toBe("Changing research stage will clear these fields:");
+    expect(t("th", "stageConfirmText")).toBe("การเปลี่ยนขั้นตอนการวิจัยจะล้างข้อมูลต่อไปนี้:");
   });
 
   it.each([

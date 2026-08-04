@@ -7,7 +7,7 @@ import {
   resolveStandards,
   resolveStandardsForDesign,
 } from "../catalog/index.js";
-import { CITATION_STYLES, EXPERIENCE_LEVELS, RESEARCHER_ROLES, TARGET_OUTPUTS } from "../state.js";
+import { CITATION_STYLES, EXPERIENCE_LEVELS, RESEARCHER_ROLES, TARGET_OUTPUTS, getCompatibleTargetOutputs } from "../state.js";
 import { getRequiredFieldIds } from "../validation.js";
 import { t } from "../i18n.js";
 import { renderEvidenceWorkspace } from "./evidence-workspace.js";
@@ -25,8 +25,8 @@ function element(tag, options = {}, children = []) {
   return node;
 }
 
-function option(value, label, selected) {
-  return element("option", { value, textContent: label, selected });
+function option(value, label, selected, disabled = false) {
+  return element("option", { value, textContent: label, selected, disabled });
 }
 
 function fieldControl(id, state, required, locale) {
@@ -44,8 +44,9 @@ function controlLabel(label, control) {
   return element("label", { className: "control-label", textContent: label }, [control]);
 }
 
-function setupSelect(locale, labelKey, fieldId, value, values, optionKey) {
-  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value)));
+function setupSelect(locale, labelKey, fieldId, value, values, optionKey, enabledValues = values) {
+  const enabled = new Set(enabledValues);
+  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value, !enabled.has(id))));
   return controlLabel(t(locale, labelKey), control);
 }
 
@@ -139,7 +140,7 @@ export function renderWorkspace(root, state, preflight) {
     setupSelect(locale, "experienceLevel", "experienceLevel", state.experienceLevel, EXPERIENCE_LEVELS, "experienceLevels"),
     setupText(locale, "scientificField", "scientificField", state.scientificField),
     setupText(locale, "institutionSetting", "institutionSetting", state.institutionSetting),
-    setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs"),
+    setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs", getCompatibleTargetOutputs(state.stageId)),
     setupSelect(locale, "citationStyle", "citationStyle", state.citationStyle, CITATION_STYLES, "citationStyles"),
     controlLabel(t(locale, "evidenceMode"), evidenceMode),
     controlLabel(t(locale, "outputLanguage"), outputLanguage),
@@ -206,7 +207,7 @@ export function renderConfirmation(root, labels, locale, kind = "transition") {
   const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : resetting ? t(locale, "resetConfirm") : t(locale, "confirm") });
   dialogRoot.replaceChildren(element("div", { className: "dialog-backdrop" }, [element("section", { className: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirmTitle" }, [
     element("h2", { id: "confirmTitle", textContent: clearingEvidence ? t(locale, "evidence.clearTitle") : resetting ? t(locale, "resetConfirmTitle") : t(locale, "confirmTitle") }),
-    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : resetting ? t(locale, "resetConfirmText") : t(locale, "confirmText") }),
+    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : resetting ? t(locale, "resetConfirmText") : t(locale, kind === "stage" ? "stageConfirmText" : "confirmText") }),
     ...(labels.length ? [element("ul", {}, labels.map(label => element("li", { textContent: label })))] : []),
     element("div", { className: "dialog-actions" }, [cancel, confirm]),
   ])]));
