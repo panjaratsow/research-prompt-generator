@@ -1,9 +1,10 @@
 import {
   createInitialState, createPublicWorkspaceState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
-  setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType,
+  restoreDraft, setAdvancedOpen, setDraftValue, setEvidenceBudget, setFieldCustomValue,
+  setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchProfileOpen, setResearchType,
   setSetupField, setStage, setStudyDesign, replaceSources,
 } from "./src/state.js";
-import { resolveStandards } from "./src/catalog/index.js";
+import { getFieldDefinition, resolveStandards } from "./src/catalog/index.js";
 import { readFieldInputValue } from "./src/field-values.js";
 import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
 import { validateState } from "./src/validation.js";
@@ -13,6 +14,7 @@ import { PARSER_DEPENDENCIES } from "./src/evidence/browser-adapters.js";
 import { createSourceRecord, mergeSourceUpdates, renumberSources } from "./src/evidence/core.js";
 import { ingestFiles, renderEvidenceWorkspace } from "./src/ui/evidence-workspace.js";
 import { closePromptDrawer, copyPrompt, downloadPrompt, openPromptDrawer } from "./src/ui/prompt-drawer.js";
+import { findFieldControl } from "./src/ui/adaptive-form.js";
 
 const root = document;
 let state = createInitialState();
@@ -98,6 +100,7 @@ function requestEvidenceMode(nextMode) {
   evidenceIssues = [];
   const next = setEvidenceMode(state, nextMode);
   update(nextMode === "uploaded" ? next : setDeidentificationConfirmed(next, false), "set-evidence-mode");
+  root.querySelector('[data-action="evidence-mode"]')?.focus();
 }
 
 async function processEvidenceFiles() {
@@ -139,52 +142,120 @@ function requestStage(nextId) {
   update(setStage(state, nextId), "set-stage");
 }
 
-root.addEventListener("input", event => {
-  const fieldId = event.target.dataset.fieldId;
-  if (fieldId) {
-    const relatedControls = event.target.type === "checkbox"
-      ? [...root.querySelectorAll("input[type='checkbox'][data-field-id]")]
-        .filter(control => control.dataset.fieldId === fieldId)
-      : [];
-    update(setField(state, fieldId, readFieldInputValue(event.target, relatedControls)), "set-field", false);
-    const preflight = validateState(state);
-    renderValidation(root, preflight, state.interfaceLocale);
-    updateLifecycleReadiness(root, preflight, state.interfaceLocale);
+function refreshDynamicStatus() {
+  const preflight = validateState(state);
+  renderValidation(root, preflight, state.interfaceLocale);
+  updateLifecycleReadiness(root, preflight, state.interfaceLocale);
+}
+
+function refreshDraftControls() {
+  root.querySelectorAll("[data-draft-id]").forEach(control => {
+    const draft = state.drafts?.[control.dataset.draftId];
+    if (!draft) return;
+    if (document.activeElement !== control && control.value !== draft.value) control.value = draft.value;
+    const status = root.querySelector(`[data-draft-status="${control.dataset.draftId}"]`);
+    if (status) status.textContent = t(state.interfaceLocale, draft.customized ? "customizedDraft" : "suggestedDraft");
+    const restore = root.querySelector(`[data-action="restore-draft"][data-restore-draft="${control.dataset.draftId}"]`);
+    if (restore) restore.hidden = !draft.customized;
+  });
+}
+
+function refreshAfterTextInput() {
+  refreshDraftControls();
+  refreshDynamicStatus();
+}
+
+function readControlValue(target, field) {
+  if (field.control === "multi-select") {
+    const related = [...root.querySelectorAll("input[type='checkbox'][data-field-id]")]
+      .filter(control => control.dataset.fieldId === field.id && !control.disabled);
+    return readFieldInputValue(target, related);
   }
-  const setupField = event.target.dataset.setupField;
-  if (setupField && event.target.tagName !== "SELECT") {
-    update(setSetupField(state, setupField, event.target.value), "set-setup-field", false);
+  if (field.control === "toggle") return String(target.checked);
+  return target.value;
+}
+
+function updateStructuredField(target) {
+  const field = getFieldDefinition(target.dataset.fieldId);
+  if (!field) return;
+  const next = setField(state, field.id, readControlValue(target, field));
+  const choseOther = (Array.isArray(next.fields[field.id]) ? next.fields[field.id] : [next.fields[field.id]])
+    .includes("other");
+  update(next, "set-field");
+  if (choseOther) root.querySelector(`[data-other-for="${field.id}"]`)?.focus();
+  else {
+    const matchingChoice = [...root.querySelectorAll("[data-field-id]")]
+      .find(control => control.dataset.fieldId === field.id && control.value === target.value && !control.disabled);
+    (matchingChoice ?? findFieldControl(root, field.id))?.focus();
+  }
+}
+
+root.addEventListener("input", event => {
+  const { target } = event;
+  if (target.dataset.otherFor) {
+    update(setFieldCustomValue(state, target.dataset.otherFor, target.value), "set-field-custom", false);
+    refreshAfterTextInput();
+    return;
+  }
+  if (target.dataset.draftId) {
+    update(setDraftValue(state, target.dataset.draftId, target.value), "set-draft", false);
+    refreshAfterTextInput();
+    return;
+  }
+  const field = getFieldDefinition(target.dataset.fieldId);
+  if (field?.control === "short-text") {
+    update(setField(state, field.id, target.value), "set-field", false);
+    refreshAfterTextInput();
+    return;
+  }
+  const setupField = target.dataset.setupField;
+  if (setupField && target.tagName !== "SELECT") {
+    update(setSetupField(state, setupField, target.value), "set-setup-field", false);
   }
 });
 
 root.addEventListener("change", event => {
   const { target } = event;
-  if (target.dataset.fieldId) { publish("commit-field"); return; }
+  if (target.dataset.fieldId) {
+    const field = getFieldDefinition(target.dataset.fieldId);
+    if (!target.dataset.otherFor && field && !["short-text", "derived-text"].includes(field.control)) {
+      updateStructuredField(target);
+    } else publish("commit-field");
+    return;
+  }
   if (target.dataset.action === "setup-field") {
-    update(
-      setSetupField(state, target.dataset.setupField, target.value),
-      "set-setup-field",
-      target.tagName === "SELECT"
-    );
+    const setupField = target.dataset.setupField;
+    update(setSetupField(state, setupField, target.value), "set-setup-field", target.tagName === "SELECT");
+    root.querySelector(`[data-setup-field="${setupField}"]`)?.focus();
     return;
   }
   if (target.id === "interfaceLanguage") {
     update(setInterfaceLocale(state, target.value), "set-interface-locale");
     document.documentElement.lang = state.interfaceLocale;
+    root.querySelector("#interfaceLanguage")?.focus();
     return;
   }
   if (target.dataset.action === "evidence-mode") requestEvidenceMode(target.value);
-  if (target.dataset.action === "output-language") update(setOutputLanguage(state, target.value), "set-output-language");
+  if (target.dataset.action === "output-language") {
+    update(setOutputLanguage(state, target.value), "set-output-language");
+    root.querySelector('[data-action="output-language"]')?.focus();
+  }
   if (target.dataset.action === "study-design") {
     const transition = setStudyDesign(state, target.value);
     if (transition.needsConfirmation) beginConfirmation("study-design", target.value, transition.analysis.fieldIds, transition.analysis);
-    else update(transition.state, "set-study-design");
+    else {
+      update(transition.state, "set-study-design");
+      root.querySelector('[data-action="study-design"]')?.focus();
+    }
   }
   if (target.dataset.action === "deidentification") update(setDeidentificationConfirmed(state, target.checked), "set-deidentification");
   if (target.dataset.action === "research-type") {
     const transition = setResearchType(state, target.value);
     if (transition.needsConfirmation) beginConfirmation("research-type", target.value, transition.analysis.fieldIds, transition.analysis);
-    else update(transition.state, "set-research-type");
+    else {
+      update(transition.state, "set-research-type");
+      root.querySelector("#researchType")?.focus();
+    }
   }
 });
 
@@ -234,6 +305,24 @@ root.addEventListener("prompt:download", event => {
 root.addEventListener("click", event => {
   const trigger = event.target.closest("[data-action]");
   const action = trigger?.dataset.action;
+  if (action === "toggle-advanced") {
+    update(setAdvancedOpen(state, state.stageId, !state.advancedOpenByStage[state.stageId]), "toggle-advanced");
+    root.querySelector('[data-action="toggle-advanced"]')?.focus();
+  }
+  if (action === "toggle-profile") {
+    update(setResearchProfileOpen(state, !state.researchProfileOpen), "toggle-profile");
+    root.querySelector('[data-action="toggle-profile"]')?.focus();
+  }
+  if (action === "restore-draft") {
+    const draftId = trigger.dataset.restoreDraft;
+    update(restoreDraft(state, draftId), "restore-draft");
+    findFieldControl(root, draftId)?.focus();
+  }
+  if (action === "edit-context") {
+    const fieldId = trigger.dataset.fieldId;
+    update(setStage(state, "define-question"), "edit-context");
+    findFieldControl(root, fieldId)?.focus();
+  }
   if (action === "cancel-confirmation") cancelConfirmation();
   if (action === "confirm-confirmation") confirmTransition();
   if (action === "generate-prompt") {

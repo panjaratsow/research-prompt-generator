@@ -73,6 +73,31 @@ describe("localized copy", () => {
     }
   });
 
+  it("provides bilingual labels and help for every catalogue field", () => {
+    for (const locale of ["th", "en"]) {
+      for (const field of FIELD_DEFINITIONS) {
+        expect(t(locale, field.labelKey), `${locale} ${field.labelKey}`).not.toBe(field.labelKey);
+        expect(t(locale, field.helpKey), `${locale} ${field.helpKey}`).not.toBe(field.helpKey);
+      }
+    }
+  });
+
+  it("localizes the compact adaptive-form controls", () => {
+    const keys = [
+      "researchProfile", "advancedDetails", "inheritedContext", "otherSpecify",
+      "notSureRecommend", "restoreSuggested", "suggestedDraft", "customizedDraft",
+      "chooseOption", "previousChoice", "editField",
+    ];
+    for (const locale of ["th", "en"]) {
+      for (const key of keys) expect(t(locale, key), `${locale} ${key}`).not.toBe(key);
+    }
+    expect(t("en", "researchProfile")).toBe("Research profile");
+    expect(t("th", "advancedDetails")).toBe("รายละเอียดขั้นสูง");
+    expect(t("en", "otherSpecify")).toBe("Other - specify");
+    expect(t("en", "notSureRecommend")).toBe("Not sure - ask AI to recommend");
+    expect(t("en", "restoreSuggested")).toBe("Restore suggested text");
+  });
+
   it("uses authored bilingual labels for a normal adaptive decision", () => {
     expect(t("th", "fields.questionType")).toBe("ประเภทคำถามวิจัย");
     expect(t("en", "fields.questionType")).toBe("Question type");

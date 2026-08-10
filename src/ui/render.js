@@ -2,60 +2,23 @@ import {
   LIFECYCLE_STAGES,
   RESEARCH_TYPES,
   STANDARDS_REVIEWED_ON,
-  getAdaptiveFieldIds,
   getStudyDesignOptions,
   resolveStandards,
   resolveStandardsForDesign,
 } from "../catalog/index.js";
-import { CITATION_STYLES, EXPERIENCE_LEVELS, RESEARCHER_ROLES, TARGET_OUTPUTS, getCompatibleTargetOutputs } from "../state.js";
-import { getRequiredFieldIds } from "../validation.js";
+import { TARGET_OUTPUTS } from "../state.js";
 import { t } from "../i18n.js";
+import { findFieldControl, renderAdaptiveForm, renderResearchProfile } from "./adaptive-form.js";
+import { element, option } from "./dom.js";
 import { renderEvidenceWorkspace } from "./evidence-workspace.js";
-
-function element(tag, options = {}, children = []) {
-  const node = document.createElement(tag);
-  const { dataset, ...properties } = options;
-  for (const [key, value] of Object.entries(properties)) {
-    if (value == null) continue;
-    if (key.includes("-")) node.setAttribute(key, value);
-    else node[key] = value;
-  }
-  if (dataset) Object.assign(node.dataset, dataset);
-  node.append(...children);
-  return node;
-}
-
-function option(value, label, selected, disabled = false) {
-  return element("option", { value, textContent: label, selected, disabled });
-}
-
-function fieldControl(id, state, required, locale) {
-  const wide = ["topic", "problemStatement", "researchQuestion", "existingInformation", "resourcesTimeline", "eligibilityCriteria", "informationSources"].includes(id);
-  const label = element("label", { className: `field-control${wide ? " wide" : ""}`, dataset: { fieldId: id } });
-  const text = element("span", { textContent: id === "population" && locale === "en" ? "Population and setting" : t(locale, `fields.${id}`) });
-  if (required) text.append(element("span", { className: "required-marker", textContent: " *" }));
-  const control = element(wide ? "textarea" : "input", { id: `field-${id}`, name: id, value: state.fields[id] ?? "", dataset: { fieldId: id }, required });
-  if (wide) control.rows = 3;
-  label.append(text, control);
-  return label;
-}
 
 function controlLabel(label, control) {
   return element("label", { className: "control-label", textContent: label }, [control]);
 }
 
-function setupSelect(locale, labelKey, fieldId, value, values, optionKey, enabledValues = values) {
-  const enabled = new Set(enabledValues);
-  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value, !enabled.has(id))));
+function setupSelect(locale, labelKey, fieldId, value, values, optionKey) {
+  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value)));
   return controlLabel(t(locale, labelKey), control);
-}
-
-function setupText(locale, labelKey, fieldId, value) {
-  return controlLabel(t(locale, labelKey), element("input", {
-    type: "text",
-    value,
-    dataset: { action: "setup-field", setupField: fieldId },
-  }));
 }
 
 function standardList(standards, locale) {
@@ -74,9 +37,7 @@ function standardList(standards, locale) {
 export function focusFirstBlockingIssue(preflight) {
   for (const issue of preflight.blocking) {
     const byId = issue.fieldId ? document.getElementById(issue.fieldId) : null;
-    const byField = issue.fieldId
-      ? document.querySelector(`[data-field-id="${issue.fieldId}"] input, [data-field-id="${issue.fieldId}"] textarea, [data-field-id="${issue.fieldId}"] select`)
-      : null;
+    const byField = issue.fieldId ? findFieldControl(document, issue.fieldId) : null;
     const bySource = issue.sourceId ? document.querySelector(`[data-testid="source-${issue.sourceId}"]`) : null;
     const control = byId ?? byField ?? bySource;
     if (control && !control.disabled) {
@@ -148,19 +109,19 @@ export function renderWorkspace(root, state, preflight) {
   const studyDesign = element("select", { dataset: { action: "study-design" } }, getStudyDesignOptions(state.researchTypeId).map(design => option(design.id, t(locale, `studyDesigns.${design.id}`), design.id === state.studyDesignId)));
   const evidenceMode = element("select", { dataset: { action: "evidence-mode" } }, ["planning", "uploaded", "web-research"].map(id => option(id, t(locale, `evidenceModes.${id}`), id === state.evidenceMode)));
   const outputLanguage = element("select", { dataset: { action: "output-language" } }, ["thai", "english", "bilingual"].map(id => option(id, t(locale, `outputLanguages.${id}`), id === state.outputLanguage)));
+  const targetOutput = setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs");
   const controls = [
     controlLabel(t(locale, "researchType"), researchType),
     controlLabel(t(locale, "studyDesign"), studyDesign),
-    setupSelect(locale, "researcherRole", "researcherRole", state.researcherRole, RESEARCHER_ROLES, "researcherRoles"),
-    setupSelect(locale, "experienceLevel", "experienceLevel", state.experienceLevel, EXPERIENCE_LEVELS, "experienceLevels"),
-    setupText(locale, "scientificField", "scientificField", state.scientificField),
-    setupText(locale, "institutionSetting", "institutionSetting", state.institutionSetting),
-    setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs", getCompatibleTargetOutputs(state.stageId)),
-    setupSelect(locale, "citationStyle", "citationStyle", state.citationStyle, CITATION_STYLES, "citationStyles"),
     controlLabel(t(locale, "evidenceMode"), evidenceMode),
     controlLabel(t(locale, "outputLanguage"), outputLanguage),
+    targetOutput,
   ];
-  root.querySelector("#setupBar").replaceChildren(element("div", { className: "panel-kicker", textContent: t(locale, "setup") }), element("div", { className: "setup-controls" }, controls));
+  root.querySelector("#setupBar").replaceChildren(
+    element("div", { className: "panel-kicker", textContent: t(locale, "setup") }),
+    element("div", { className: "setup-controls" }, controls),
+    renderResearchProfile(state, locale)
+  );
 
   root.querySelector("#lifecycleRail").replaceChildren(
     element("div", { className: "rail-heading", textContent: t(locale, "lifecycle") }),
@@ -180,10 +141,7 @@ export function renderWorkspace(root, state, preflight) {
   );
   updateLifecycleReadiness(root, preflight, locale);
 
-  const fieldIds = getAdaptiveFieldIds(state.researchTypeId, state.stageId, state.studyDesignId);
-  const required = new Set(getRequiredFieldIds(state.researchTypeId, state.stageId));
-  const form = element("form", { className: "adaptive-form", noValidate: true });
-  fieldIds.forEach(id => form.append(fieldControl(id, state, required.has(id), locale)));
+  const form = renderAdaptiveForm(state, preflight, locale);
   const validationSummary = element("section", { className: "validation-summary", "aria-label": t(locale, "validationHeading"), dataset: { testid: "validation-summary" } });
   const generate = element("button", { type: "button", className: "primary-button", dataset: { action: "generate-prompt" }, textContent: t(locale, "actions.generate") });
   root.querySelector("#workspaceMain").replaceChildren(

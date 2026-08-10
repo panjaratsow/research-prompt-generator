@@ -64,6 +64,8 @@ async function completePromptFields(page) {
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
   await page.getByLabel("Population and setting").fill("Women giving birth in Thai referral hospitals");
+  await page.getByLabel("Question type").selectOption("prognosis");
+  await page.getByLabel("Primary outcome").fill("Severe postpartum haemorrhage");
   await page.getByLabel("Research question *", { exact: true }).fill("Which modifiable factors predict severe postpartum haemorrhage?");
 }
 
@@ -97,14 +99,14 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
       thaiLabel: "ขั้นที่ 1: กำหนดคำถามวิจัย",
       englishLabel: "Step 1: Define the Research Question",
       task: "Define a focused, significant, and feasible research question.",
-      fieldId: "problemStatement",
+      fieldId: "topic",
     },
     {
       id: "literature-review",
       thaiLabel: "ขั้นที่ 2: ทบทวนวรรณกรรม",
       englishLabel: "Step 2: Conduct a Literature Review",
       task: "Plan and conduct a reproducible, critical review of relevant literature.",
-      fieldId: "searchStrategy",
+      fieldId: "informationSources",
     },
     {
       id: "synthesize-information",
@@ -118,28 +120,28 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
       thaiLabel: "ขั้นที่ 4: ระบุช่องว่างการวิจัย",
       englishLabel: "Step 4: Identify Research Gaps",
       task: "Identify and justify research gaps from the reviewed and synthesized information.",
-      fieldId: "researchGaps",
+      fieldId: "gapType",
     },
     {
       id: "generate-hypotheses",
       thaiLabel: "ขั้นที่ 5: สร้างสมมติฐาน",
       englishLabel: "Step 5: Generate Hypotheses",
       task: "Generate testable hypotheses, research propositions, or a justified non-hypothesis approach.",
-      fieldId: "hypotheses",
+      fieldId: "hypothesisApproach",
     },
     {
       id: "outline-methodology",
       thaiLabel: "ขั้นที่ 6: วางโครงร่างระเบียบวิธีวิจัย",
       englishLabel: "Step 6: Outline Research Methodology",
       task: "Outline a rigorous, feasible, ethical, and design-appropriate research methodology.",
-      fieldId: "methodologyOutline",
+      fieldId: "confirmedDesign",
     },
     {
       id: "write-proposal",
       thaiLabel: "ขั้นที่ 7: เขียนข้อเสนอโครงการวิจัย",
       englishLabel: "Step 7: Write a Research Proposal",
       task: "Integrate the research question, evidence, gaps, hypotheses, and methodology into a research proposal.",
-      fieldId: "resourcesTimeline",
+      fieldId: "proposalType",
     },
   ];
   const buttons = page.locator('[data-action="stage"]');
@@ -156,11 +158,90 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
     await button.click();
     await expect(button).toHaveAttribute("aria-current", "step");
     await expect(page.locator(".form-description")).toHaveText(stage.task);
-    await expect(page.locator(`[data-field-id="${stage.fieldId}"] input, [data-field-id="${stage.fieldId}"] textarea`)).toBeVisible();
+    await expect(page.locator(`[data-field-id="${stage.fieldId}"]`).first()).toBeVisible();
   }
 });
 
-test("target-output selector permits only the deliverable compatible with each stage", async ({ page }) => {
+test("Research profile starts collapsed outside the compact setup", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  await expect(page.getByTestId("setup-bar").getByLabel("Researcher role")).toHaveCount(0);
+  await expect(page.getByTestId("setup-bar").locator("select, input")).toHaveCount(5);
+  await page.getByRole("button", { name: "Research profile" }).click();
+  await expect(page.getByLabel("Researcher role")).toBeVisible();
+  await expect(page.getByLabel("Experience level")).toBeVisible();
+  await expect(page.getByLabel("Scientific field")).toBeVisible();
+  await expect(page.getByLabel("Country and institutional setting")).toBeVisible();
+  await expect(page.getByLabel("Citation style")).toBeVisible();
+});
+
+test("Simple and Advanced fields use the compact accessible form", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  const simple = page.getByTestId("simple-fields");
+  await expect(simple.locator("[data-field-id]")).toHaveCount(4);
+  await expect(page.getByLabel("Question type")).toHaveRole("combobox");
+  await expect(page.getByRole("button", { name: "Advanced details" })).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByTestId("advanced-fields")).toBeHidden();
+});
+
+test("Simple and Advanced form carries inherited context in canonical order", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
+  await page.getByLabel("Population and setting").fill("Women in referral hospitals");
+  await page.getByLabel("Primary outcome").fill("Severe haemorrhage");
+  await page.locator('[data-draft-id="researchQuestion"]').fill("Which factors predict severe haemorrhage?");
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+
+  const context = page.getByTestId("context-strip");
+  expect(await context.locator("[data-context-field]").evaluateAll(items => items.map(item => item.dataset.contextField))).toEqual([
+    "topic", "population", "researchQuestion", "primaryOutcome",
+  ]);
+  await expect(context.getByRole("button", { name: "Edit Research topic" })).toBeVisible();
+  await expect(context.getByRole("button", { name: "Edit Population and setting" })).toBeVisible();
+  await expect(context.getByRole("button", { name: "Edit Research question" })).toBeVisible();
+  await expect(context.getByRole("button", { name: "Edit Primary outcome" })).toBeVisible();
+});
+
+test("Other reveals one labelled short input", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  await page.getByLabel("Question type").selectOption("other");
+  const other = page.getByLabel("Other - specify");
+  await expect(other).toBeVisible();
+  await expect(other).toHaveAttribute("data-other-for", "questionType");
+  await expect(page.locator('[data-other-for="questionType"]')).toHaveCount(1);
+});
+
+test("Not sure is offered only when the catalogue permits it", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+  await expect(page.getByLabel("Synthesis method").getByRole("option", { name: "Not sure - ask AI to recommend" })).toHaveCount(1);
+
+  await page.locator('[data-action="stage"][data-stage-id="write-proposal"]').click();
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  await expect(page.getByLabel("Registration").getByRole("option", { name: "Not sure - ask AI to recommend" })).toHaveCount(0);
+});
+
+test("checkbox chips expose checked state and customized drafts offer Restore suggested text", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  const medline = page.getByRole("checkbox", { name: "MEDLINE/PubMed" });
+  await medline.check();
+  await expect(medline).toBeChecked();
+
+  await page.locator('[data-action="stage"][data-stage-id="define-question"]').click();
+  await page.locator('[data-draft-id="researchQuestion"]').fill("A user-customized research question.");
+  await expect(page.getByRole("button", { name: "Restore suggested text" })).toBeVisible();
+});
+
+test("target-output selector enables every deliverable and maps it directly to its stage", async ({ page }) => {
   const stageOutputs = [
     ["define-question", "research-question"],
     ["literature-review", "literature-review-strategy"],
@@ -173,15 +254,15 @@ test("target-output selector permits only the deliverable compatible with each s
 
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
+  const selector = page.getByLabel("Target output");
+  expect(await selector.locator("option").evaluateAll(options => options.filter(option => !option.disabled).map(option => option.value))).toEqual([
+    "stage-appropriate-deliverable",
+    ...stageOutputs.map(([, targetOutput]) => targetOutput),
+  ]);
   for (const [stageId, targetOutput] of stageOutputs) {
-    await page.locator(`[data-action="stage"][data-stage-id="${stageId}"]`).click();
-    const selector = page.getByLabel("Target output");
-    expect(await selector.locator("option").evaluateAll(options => options.filter(option => !option.disabled).map(option => option.value))).toEqual([
-      "stage-appropriate-deliverable",
-      targetOutput,
-    ]);
     await selector.selectOption(targetOutput);
     await expect(selector).toHaveValue(targetOutput);
+    await expect(page.locator(`[data-action="stage"][data-stage-id="${stageId}"]`)).toHaveAttribute("aria-current", "step");
   }
 });
 
@@ -197,7 +278,10 @@ test("uploaded synthesis deidentifies, includes, copies, and downloads the searc
   await completePromptFields(page);
   await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
   await page.getByLabel("Evidence summary").fill("Source summary");
-  await page.getByLabel("Synthesis method").fill("Narrative synthesis");
+  await page.getByLabel("Evidence pattern").selectOption("not-yet-assessed");
+  await page.getByLabel("Synthesis method").selectOption("narrative");
+  await page.getByLabel("Evidence certainty").selectOption("not-yet-assessed");
+  await page.getByRole("checkbox", { name: "Sparse evidence" }).check();
   await page.getByLabel("Evidence mode").selectOption("uploaded");
   await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
   await confirmDeidentified(page, "I confirm these files are deidentified");
@@ -218,6 +302,7 @@ test("uploaded synthesis deidentifies, includes, copies, and downloads the searc
 test("preserves persistent setup and structured design across transitions", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Research profile" }).click();
   await page.getByLabel("Researcher role").selectOption("postgraduate-student");
   await page.getByLabel("Experience level").selectOption("advanced");
   await page.getByLabel("Scientific field").fill("Neonatology");
@@ -386,6 +471,8 @@ test("confirms reset and keeps prompt output language independent from interface
   await page.getByLabel("Output language").selectOption("thai");
   await page.getByLabel("Research topic").fill("Postpartum haemorrhage");
   await page.getByLabel("Population and setting").fill("Women giving birth in Thai referral hospitals");
+  await page.getByLabel("Question type").selectOption("prognosis");
+  await page.getByLabel("Primary outcome").fill("Severe postpartum haemorrhage");
   await page.getByLabel("Research question *", { exact: true }).fill("Which modifiable factors predict severe postpartum haemorrhage?");
   await page.getByRole("button", { name: "Generate prompt" }).click();
   await expect(page.getByTestId("prompt-output")).toContainText("Output language: Thai");
@@ -443,17 +530,18 @@ test("updates question readiness while the final required field remains focused"
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel(/research topic/i).fill("Postpartum care");
   await page.getByLabel(/population and setting/i).fill("Adults in Bangkok");
-  const question = page.locator('[data-field-id="researchQuestion"] textarea');
-  await question.focus();
-  await question.pressSequentially("Which factors improve care?");
+  await page.getByLabel("Question type").selectOption("prognosis");
+  const outcome = page.getByLabel("Primary outcome");
+  await outcome.focus();
+  await outcome.pressSequentially("Improved care");
   const questionStage = page.locator('[data-action="stage"][data-stage-id="define-question"]');
   await expect(questionStage).toHaveAttribute("aria-label", /Step 1: Define the Research Question: ready/i);
-  await expect(question).toHaveValue("Which factors improve care?");
-  await expect(question).toBeFocused();
-  expect(await question.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
+  await expect(outcome).toHaveValue("Improved care");
+  await expect(outcome).toBeFocused();
+  expect(await outcome.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
 });
 
-test("renders resolvable warnings and visible lifecycle readiness text with icons", async ({ page }) => {
+test("renders warnings, Advanced controls, and visible lifecycle readiness text with icons", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research type").selectOption("prediction");
@@ -465,20 +553,9 @@ test("renders resolvable warnings and visible lifecycle readiness text with icon
   await expect(warnings).toContainText("Consider ethics approval");
   await expect(warnings).toContainText("Consider a data-sharing plan");
   await expect(warnings).toContainText("Consider external validation");
-  await expect(page.getByLabel("Study registration")).toBeVisible();
-  await expect(page.getByLabel("Ethics approval")).toBeVisible();
-  await expect(page.getByLabel("Data sharing plan")).toBeVisible();
-  const externalValidation = page.getByRole("textbox", { name: "External validation", exact: true });
-  await expect(externalValidation).toBeVisible();
-
-  await page.getByLabel("Study registration").fill("Registered prospectively");
-  await page.getByLabel("Ethics approval").fill("Local determination pending verification");
-  await page.getByLabel("Data sharing plan").fill("Controlled access");
-  await externalValidation.fill("Independent hospital validation");
-  await expect(warnings).not.toContainText("Consider study registration");
-  await expect(warnings).not.toContainText("Consider ethics approval");
-  await expect(warnings).not.toContainText("Consider a data-sharing plan");
-  await expect(warnings).not.toContainText("Consider external validation");
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  await expect(page.getByLabel("Sample-size plan")).toBeVisible();
+  await expect(page.getByLabel("Ethics and governance")).toBeVisible();
 
   const questionStage = page.locator('[data-action="stage"][data-stage-id="define-question"]');
   await expect(questionStage.locator("[data-stage-status]")).toBeVisible();
@@ -497,17 +574,13 @@ test("focuses the first available upload or deidentification blocker", async ({ 
   await expect(page.getByLabel("I confirm these files are deidentified")).toBeFocused();
 });
 
-test("confirms incompatible stage changes and supports modal keyboard controls", async ({ page }) => {
+test("preserves Advanced values across disclosure and stage changes", async ({ page }) => {
   const pageErrors = [];
   page.on("pageerror", error => pageErrors.push(error.message));
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
-  await page.evaluate(() => {
-    window.workspaceStates = [];
-    window.addEventListener("workspace:statechange", event => window.workspaceStates.push(event.detail.state));
-  });
-  await page.getByLabel(/problem statement/i).fill("Touched then cleared");
-  await page.getByLabel(/problem statement/i).fill("   ");
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  await page.getByLabel(/problem statement/i).fill("Delayed diagnosis");
   const evidenceStage = page.getByRole("button", { name: /conduct a literature review/i });
   await expect(evidenceStage).toHaveAttribute("data-action", "stage");
   await expect(evidenceStage).toHaveAttribute("data-stage-id", "literature-review");
@@ -518,30 +591,11 @@ test("confirms incompatible stage changes and supports modal keyboard controls",
 
   const questionStage = page.getByRole("button", { name: /define the research question/i });
   await questionStage.click();
-  await page.getByLabel(/problem statement/i).fill("Delayed diagnosis");
-  expect(await page.evaluate(() => window.workspaceStates.at(-1).fields.problemStatement)).toBe("Delayed diagnosis");
-  await evidenceStage.click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("Changing research stage will clear these fields:");
-  await expect(dialog).not.toContainText("Changing research type");
-  await expect(dialog).toContainText("Problem statement");
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
-  await page.keyboard.press("Shift+Tab");
-  await expect(page.getByRole("button", { name: "Confirm change" })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toBeHidden();
-  await expect(evidenceStage).not.toHaveAttribute("aria-current", "step");
   await expect(page.getByLabel(/problem statement/i)).toHaveValue("Delayed diagnosis");
-  await expect(evidenceStage).toBeFocused();
-  await evidenceStage.click();
-  await expect(page.getByRole("button", { name: "Cancel" })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Confirm change" })).toBeFocused();
-  await page.keyboard.press("Enter");
-  await expect(evidenceStage).toHaveAttribute("aria-current", "step");
-  await expect(page.getByLabel(/problem statement/i)).toHaveCount(0);
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  await expect(page.getByLabel(/problem statement/i)).toBeHidden();
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  await expect(page.getByLabel(/problem statement/i)).toHaveValue("Delayed diagnosis");
 });
 
 test("localizes document language and resolves the uploaded-mode confirmation blocker", async ({ page }) => {
