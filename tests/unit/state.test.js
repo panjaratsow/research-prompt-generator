@@ -9,6 +9,7 @@ import {
   setEvidenceBudget,
   setEvidenceMode,
   setDeidentificationConfirmed,
+  setDraftValue,
   setField,
   setInterfaceLocale,
   setOutputLanguage,
@@ -21,6 +22,7 @@ import {
   setStage,
   setStudyDesign,
   setTargetOutput,
+  syncDrafts,
 } from "../../src/state.js";
 import { STAGE_IDS } from "../../src/catalog/index.js";
 
@@ -265,11 +267,29 @@ describe("state transitions", () => {
 
     expect(next).not.toBe(state);
     expect(next.fields).not.toBe(state.fields);
-    expect(next.fields).toEqual({
+    expect(next.fields).toMatchObject({
       topic: "Original topic",
       researchQuestion: "What is the effect?",
     });
     expect(state.fields).toEqual({ topic: "Original topic" });
+  });
+
+  it("keeps derived fields synchronized with their visible draft values", () => {
+    let state = setField(createInitialState(), "topic", "Original topic");
+    state = setDraftValue(state, "researchQuestion", "A user-owned question");
+    state = setField(state, "topic", "Updated topic");
+
+    expect(state.drafts.researchQuestion).toMatchObject({
+      value: "A user-owned question",
+      customized: true,
+    });
+    expect(state.fields.researchQuestion).toBe("A user-owned question");
+
+    const transitioned = setResearchType(state, "randomized-trial", true).state;
+    expect(transitioned.fields.researchQuestion).toBe(transitioned.drafts.researchQuestion.value);
+    expect(transitioned.drafts.searchStrategy.value).toBe(transitioned.drafts.searchStrategy.suggested);
+    expect(syncDrafts(transitioned, "en").fields.proposalOutline)
+      .toBe(syncDrafts(transitioned, "en").drafts.proposalOutline.value);
   });
 
   it("carries canonical and completed stage products through all seven stages", () => {

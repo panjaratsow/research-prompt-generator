@@ -8,6 +8,7 @@ import {
   getResearchType,
   getStudyDesign,
 } from "./catalog/index.js";
+import { syncDrafts as syncComposedDrafts } from "./draft-composer.js";
 import { getOtherText, getStaleOptionIds, hasMeaningfulValue, normalizeFieldValue } from "./field-values.js";
 
 export const RESEARCHER_ROLES = Object.freeze([
@@ -93,7 +94,7 @@ function contextFor(state, overrides = {}) {
 function transitionResult(state, nextContext, confirmed, analysis) {
   const needsConfirmation = analysis.fieldIds.length > 0 || Object.keys(analysis.optionIdsByField).length > 0;
   return {
-    state: confirmed || !needsConfirmation ? applyContextTransition(state, nextContext, analysis) : state,
+    state: confirmed || !needsConfirmation ? syncDrafts(applyContextTransition(state, nextContext, analysis)) : state,
     needsConfirmation: !confirmed && needsConfirmation,
     analysis,
     incompatible: analysis.fieldIds,
@@ -139,13 +140,15 @@ export function setField(state, fieldId, value) {
   const field = getFieldDefinition(fieldId);
   if (!field) throw new RangeError(`Unknown field: ${fieldId}`);
   if (field.readOnly) throw new RangeError(`${fieldId} is read-only`);
-  return { ...state, fields: { ...state.fields, [fieldId]: normalizeFieldValue(field, value) } };
+  const normalized = normalizeFieldValue(field, value);
+  if (state.drafts?.[fieldId]) return setDraftValue(state, fieldId, normalized);
+  return syncDrafts({ ...state, fields: { ...state.fields, [fieldId]: normalized } });
 }
 
 export function setFieldCustomValue(state, fieldId, value) {
   if (!getFieldDefinition(fieldId)) throw new RangeError(`Unknown field: ${fieldId}`);
   if (typeof value !== "string") throw new TypeError(`${fieldId} requires a string`);
-  return { ...state, fieldCustomValues: { ...state.fieldCustomValues, [fieldId]: value.trim() } };
+  return syncDrafts({ ...state, fieldCustomValues: { ...state.fieldCustomValues, [fieldId]: value.trim() } });
 }
 
 export function setAdvancedOpen(state, stageId, open) {
@@ -193,8 +196,8 @@ export function setStage(state, nextStageId) {
 
 export function setTargetOutput(state, targetOutput) {
   assertEnum(targetOutput, TARGET_OUTPUTS);
-  if (targetOutput === "stage-appropriate-deliverable") return { ...state, targetOutput };
-  return { ...state, targetOutput, stageId: TARGET_OUTPUT_STAGES[targetOutput] };
+  if (targetOutput === "stage-appropriate-deliverable") return syncDrafts({ ...state, targetOutput });
+  return syncDrafts({ ...state, targetOutput, stageId: TARGET_OUTPUT_STAGES[targetOutput] });
 }
 
 export function analyzeContextTransition(state, nextContext) {
@@ -255,7 +258,39 @@ export function applyContextTransition(state, nextContext, analysis) {
 
 export function setInterfaceLocale(state, locale) {
   assertEnum(locale, INTERFACE_LOCALES);
-  return { ...state, interfaceLocale: locale };
+  return syncDrafts({ ...state, interfaceLocale: locale }, locale);
+}
+
+export function syncDrafts(state, locale = state.interfaceLocale) {
+  return syncComposedDrafts(state, locale);
+}
+
+export function setDraftValue(state, draftId, value) {
+  const previous = state.drafts?.[draftId];
+  if (!previous) throw new RangeError(`Unknown draft: ${draftId}`);
+  if (typeof value !== "string") throw new TypeError(`${draftId} requires a string`);
+  return syncDrafts({
+    ...state,
+    drafts: {
+      ...state.drafts,
+      [draftId]: { ...previous, value, customized: value !== previous.suggested },
+    },
+    fields: { ...state.fields, [draftId]: value },
+  });
+}
+
+export function restoreDraft(state, draftId, locale = state.interfaceLocale) {
+  const current = syncDrafts(state, locale);
+  const previous = current.drafts?.[draftId];
+  if (!previous) throw new RangeError(`Unknown draft: ${draftId}`);
+  return syncDrafts({
+    ...current,
+    drafts: {
+      ...current.drafts,
+      [draftId]: { ...previous, value: previous.suggested, customized: false, error: "" },
+    },
+    fields: { ...current.fields, [draftId]: previous.suggested },
+  }, locale);
 }
 
 export function setEvidenceMode(state, mode) {
