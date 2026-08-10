@@ -22,7 +22,7 @@ describe("preflight validation", () => {
   it("blocks an incomplete planning prompt", () => {
     const result = validateState(createInitialState());
     expect(result.blocking.map(issue => issue.code)).toEqual(
-      expect.arrayContaining(["missing-topic", "missing-question"])
+      expect.arrayContaining(["missing-topic", "missing-questionType", "missing-primaryOutcome"])
     );
   });
 
@@ -34,11 +34,24 @@ describe("preflight validation", () => {
     );
   });
 
-  it("marks define-question stage ready when critical fields are present", () => {
-    let state = setField(createInitialState(), "topic", "Postpartum haemorrhage");
-    state = setField(state, "population", "Women giving birth in Thai referral hospitals");
-    state = setField(state, "researchQuestion", "Which modifiable factors predict severe postpartum haemorrhage?");
-    expect(validateState(state).readinessByStage["define-question"]).toBe("ready");
+  it("reports actionable readiness for required simple fields", () => {
+    const empty = validateState(createInitialState()).readinessByStage["define-question"];
+    expect(empty).toEqual({
+      status: "not-started",
+      remaining: 4,
+      missingFieldIds: ["topic", "population", "questionType", "primaryOutcome"],
+      reasonCode: "",
+    });
+
+    const partialState = setField(createInitialState(), "topic", "Cardiac remodelling");
+    expect(validateState(partialState).readinessByStage["define-question"]).toMatchObject({
+      status: "remaining",
+      remaining: 3,
+    });
+
+    const notSureState = setField(partialState, "questionType", "not-sure");
+    expect(validateState(notSureState).readinessByStage["define-question"].missingFieldIds)
+      .not.toContain("questionType");
   });
 
   it("marks every stage blocked for invalid type, stage, and uploaded global blockers", () => {
@@ -52,8 +65,10 @@ describe("preflight validation", () => {
     const uploaded = validateState({ ...state, evidenceMode: "uploaded" });
 
     for (const result of [invalidType, invalidStage, uploaded]) {
-      expect(Object.values(result.readinessByStage)).not.toContain("ready");
-      expect(Object.values(result.readinessByStage)).toContain("blocked");
+      expect(Object.values(result.readinessByStage).map(readiness => readiness.status))
+        .not.toContain("ready");
+      expect(Object.values(result.readinessByStage).map(readiness => readiness.status))
+        .toContain("blocked");
     }
   });
 
@@ -85,14 +100,13 @@ describe("preflight validation", () => {
     });
   });
 
-  it("defines required fields for every lifecycle stage", () => {
-    expect(getRequiredFieldIds("observational", "define-question")).toEqual(["topic", "population", "researchQuestion"]);
-    expect(getRequiredFieldIds("observational", "literature-review")).toEqual(["topic", "researchQuestion", "informationSources", "searchStrategy"]);
-    expect(getRequiredFieldIds("observational", "synthesize-information")).toEqual(["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"]);
-    expect(getRequiredFieldIds("observational", "identify-gaps")).toEqual(["topic", "researchQuestion", "researchGaps"]);
-    expect(getRequiredFieldIds("observational", "generate-hypotheses")).toEqual(["topic", "researchQuestion", "hypotheses"]);
-    expect(getRequiredFieldIds("observational", "outline-methodology")).toEqual(["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"]);
-    expect(getRequiredFieldIds("observational", "write-proposal")).toEqual(["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"]);
+  it("reads required field IDs from the stage catalogue", () => {
+    expect(getRequiredFieldIds("observational", "define-question", "cohort", "planning", {}))
+      .toEqual(["topic", "population", "questionType", "primaryOutcome"]);
+    expect(getRequiredFieldIds("observational", "literature-review", "cohort", "planning", {}))
+      .toEqual(["informationSources", "dateCoverage", "evidenceTypes", "searchConcepts"]);
+    expect(getRequiredFieldIds("observational", "outline-methodology", "cohort", "planning", {}))
+      .toEqual(["confirmedDesign", "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod"]);
   });
 
   it("derives readiness and warnings from the approved lifecycle boundaries", () => {
@@ -104,12 +118,62 @@ describe("preflight validation", () => {
       .toContainEqual(expect.objectContaining({ code: "missing-registration" }));
   });
 
-  it("adds design-specific requirements for diagnostic, prediction, qualitative, review, and AI work", () => {
-    expect(getRequiredFieldIds("diagnostic", "define-question")).toEqual(expect.arrayContaining(["targetCondition", "indexTest", "referenceStandard"]));
-    expect(getRequiredFieldIds("prediction", "define-question")).toEqual(expect.arrayContaining(["predictors", "developmentDataset", "validationDataset"]));
-    expect(getRequiredFieldIds("qualitative-mixed", "define-question")).toEqual(expect.arrayContaining(["sample", "phenomenon", "reflexivity"]));
-    expect(getRequiredFieldIds("evidence-review", "define-question")).toEqual(expect.arrayContaining(["reviewType", "reviewQuestion", "synthesisMethod"]));
-    expect(getRequiredFieldIds("ai-health-data", "define-question")).toEqual(expect.arrayContaining(["intendedUse", "datasetProvenance", "modelInputs", "performanceMeasures"]));
+  it("keeps Other incomplete until its custom text is supplied", () => {
+    const state = setField(createInitialState(), "questionType", "other");
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"].missingFieldIds).toContain("questionType");
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-questionType",
+      fieldId: "questionType",
+      messageKey: "validation.validationOtherRequired",
+    }));
+  });
+
+  it("reports stale options and draft composition failures without user values", () => {
+    const staleValue = "obsolete-question-type";
+    const state = {
+      ...createInitialState(),
+      fields: { questionType: staleValue },
+      drafts: {
+        ...createInitialState().drafts,
+        researchQuestion: { suggested: "", value: "", customized: false, error: "composition-failed" },
+      },
+    };
+    const result = validateState(state);
+
+    expect(result.blocking).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "stale-field-option", fieldId: "questionType" }),
+      expect.objectContaining({ code: "draft-composition-failed", fieldId: "researchQuestion" }),
+    ]));
+    expect(JSON.stringify(result)).not.toContain(staleValue);
+  });
+
+  it("warns for omitted Advanced fields without blocking ordinary readiness", () => {
+    const state = withFields(createInitialState(), {
+      topic: "Cardiac remodelling",
+      population: "Adults with heart failure",
+      questionType: "prognosis",
+      primaryOutcome: "Hospital admission",
+    });
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"].status).toBe("ready");
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "missing-problemStatement",
+      fieldId: "problemStatement",
+    }));
+    expect(result.blocking).not.toContainEqual(expect.objectContaining({ fieldId: "problemStatement" }));
+  });
+
+  it("uses the first uploaded global blocker as the readiness reason", () => {
+    const readiness = validateState({ ...createInitialState(), evidenceMode: "uploaded" })
+      .readinessByStage["define-question"];
+
+    expect(readiness).toMatchObject({
+      status: "blocked",
+      reasonCode: "deidentification-unconfirmed",
+    });
   });
 
   it("adds context-specific readiness warnings without document text", () => {

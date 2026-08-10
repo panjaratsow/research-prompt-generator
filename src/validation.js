@@ -1,23 +1,15 @@
-import { LIFECYCLE_STAGES, getResearchType } from "./catalog/index.js";
+import {
+  LIFECYCLE_STAGES,
+  getResearchType,
+  getStageFieldDefinitions,
+} from "./catalog/index.js";
 import { calculateEvidenceBudget } from "./evidence/core.js";
-
-const STAGE_REQUIRED_FIELDS = {
-  "define-question": ["topic", "population", "researchQuestion"],
-  "literature-review": ["topic", "researchQuestion", "informationSources", "searchStrategy"],
-  "synthesize-information": ["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"],
-  "identify-gaps": ["topic", "researchQuestion", "researchGaps"],
-  "generate-hypotheses": ["topic", "researchQuestion", "hypotheses"],
-  "outline-methodology": ["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"],
-  "write-proposal": ["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"],
-};
-
-const DESIGN_REQUIRED_FIELDS = {
-  diagnostic: ["targetCondition", "indexTest", "referenceStandard", "diagnosticThreshold"],
-  prediction: ["predictors", "primaryOutcome", "endpointTiming", "developmentDataset", "validationDataset"],
-  "qualitative-mixed": ["sample", "phenomenon", "qualitativeDesign", "dataCollection", "analysisApproach", "reflexivity"],
-  "evidence-review": ["reviewType", "reviewQuestion", "eligibilityCriteria", "informationSources", "synthesisMethod"],
-  "ai-health-data": ["intendedUse", "targetPopulation", "datasetProvenance", "referenceStandard", "modelInputs", "validationDataset", "performanceMeasures"],
-};
+import {
+  getFieldValue,
+  getStaleOptionIds,
+  hasMeaningfulValue,
+  isFieldComplete,
+} from "./field-values.js";
 
 const GLOBAL_BLOCKING_CODES = new Set([
   "missing-research-type",
@@ -33,36 +25,88 @@ function issue(code, messageKey, { fieldId = "", sourceId = "" } = {}) {
   return { code, fieldId, sourceId, messageKey };
 }
 
-function hasValue(fields, fieldId) {
-  const value = fields[fieldId];
-  return typeof value === "string" ? Boolean(value.trim()) : Boolean(value);
-}
-
-function requiredIssue(fieldId) {
+function requiredIssue(state, field) {
+  const value = getFieldValue(state, field.id);
+  const includesOther = (Array.isArray(value) ? value : [value]).includes("other");
+  if (includesOther) {
+    return issue(`missing-${field.id}`, "validation.validationOtherRequired", { fieldId: field.id });
+  }
+  const { id: fieldId } = field;
   if (fieldId === "topic") return issue("missing-topic", "validation.missingTopic", { fieldId });
   if (fieldId === "researchQuestion") return issue("missing-question", "validation.missingQuestion", { fieldId });
   return issue(`missing-${fieldId}`, "validation.missingRequiredField", { fieldId });
 }
 
 function warningForMissingField(warnings, state, fieldId, code, messageKey) {
-  if (!hasValue(state.fields, fieldId)) warnings.push(issue(code, messageKey, { fieldId }));
+  if (!hasMeaningfulValue(getFieldValue(state, fieldId))) warnings.push(issue(code, messageKey, { fieldId }));
 }
 
-export function getRequiredFieldIds(typeId, stageId) {
-  const stageFields = STAGE_REQUIRED_FIELDS[stageId] ?? [];
-  const designFields = DESIGN_REQUIRED_FIELDS[typeId] ?? [];
-  return [...new Set([...stageFields, ...designFields])];
+function stageContext(typeId, stageId, studyDesignId, evidenceMode, fields) {
+  return {
+    researchTypeId: typeId,
+    studyDesignId: studyDesignId ?? getResearchType(typeId)?.defaultStudyDesignId,
+    stageId,
+    evidenceMode,
+    fields: fields ?? {},
+  };
+}
+
+function requiredFieldsForStage(context) {
+  return getStageFieldDefinitions(context).simple
+    .filter(field => field.required || field.designCritical);
+}
+
+export function getRequiredFieldIds(typeId, stageId, studyDesignId, evidenceMode, fields) {
+  return requiredFieldsForStage(stageContext(typeId, stageId, studyDesignId, evidenceMode, fields))
+    .map(field => field.id);
+}
+
+function calculateStageReadiness(state, stageId, globalBlockers) {
+  const context = { ...state, stageId, fields: state.fields ?? {} };
+  const required = requiredFieldsForStage(context);
+  const missingFieldIds = required
+    .filter(field => !isFieldComplete(state, field))
+    .map(field => field.id);
+  const started = required.some(field => hasMeaningfulValue(getFieldValue(state, field.id)));
+
+  if (globalBlockers.length) return {
+    status: "blocked",
+    remaining: missingFieldIds.length,
+    missingFieldIds,
+    reasonCode: globalBlockers[0].code,
+  };
+  if (!started) return { status: "not-started", remaining: missingFieldIds.length, missingFieldIds, reasonCode: "" };
+  if (missingFieldIds.length) return { status: "remaining", remaining: missingFieldIds.length, missingFieldIds, reasonCode: "" };
+  return { status: "ready", remaining: 0, missingFieldIds: [], reasonCode: "" };
 }
 
 function calculateReadiness(state, blocking) {
-  const globallyBlocked = blocking.some(issue => GLOBAL_BLOCKING_CODES.has(issue.code));
-
+  const globalBlockers = blocking.filter(entry => GLOBAL_BLOCKING_CODES.has(entry.code));
   return Object.fromEntries(LIFECYCLE_STAGES.map(({ id }) => {
-    if (globallyBlocked) return [id, "blocked"];
-    const fieldsReady = getRequiredFieldIds(state.researchTypeId, id)
-      .every(fieldId => hasValue(state.fields, fieldId));
-    return [id, fieldsReady ? "ready" : "incomplete"];
+    return [id, calculateStageReadiness(state, id, globalBlockers)];
   }));
+}
+
+function addAdaptiveFieldIssues(state, blocking, warnings) {
+  const form = getStageFieldDefinitions(state);
+  const required = requiredFieldsForStage(state);
+
+  for (const field of required) {
+    if (!isFieldComplete(state, field)) blocking.push(requiredIssue(state, field));
+  }
+  for (const field of form.advanced) {
+    if (isFieldComplete(state, field)) continue;
+    if (field.designCritical) blocking.push(requiredIssue(state, field));
+    else warnings.push(issue(`missing-${field.id}`, "validation.missingRequiredField", { fieldId: field.id }));
+  }
+  for (const field of [...form.simple, ...form.advanced]) {
+    if (getStaleOptionIds(state, field, state).length) {
+      blocking.push(issue("stale-field-option", "validation.validationStaleOption", { fieldId: field.id }));
+    }
+  }
+  if (form.draft?.designCritical && state.drafts?.[form.draft.id]?.error) {
+    blocking.push(issue("draft-composition-failed", "validation.validationDraftError", { fieldId: form.draft.id }));
+  }
 }
 
 function addContextualWarnings(state, warnings) {
@@ -93,12 +137,10 @@ export function validateState(state) {
   if (!getResearchType(state.researchTypeId)) {
     blocking.push(issue("missing-research-type", "validation.missingResearchType", { fieldId: "researchTypeId" }));
   }
-  if (!STAGE_REQUIRED_FIELDS[state.stageId]) {
+  if (!LIFECYCLE_STAGES.some(stage => stage.id === state.stageId)) {
     blocking.push(issue("missing-stage", "validation.missingStage", { fieldId: "stageId" }));
   }
-  for (const fieldId of getRequiredFieldIds(state.researchTypeId, state.stageId)) {
-    if (!hasValue(fields, fieldId)) blocking.push(requiredIssue(fieldId));
-  }
+  addAdaptiveFieldIssues({ ...state, fields }, blocking, warnings);
   if (state.evidenceMode === "uploaded" && !state.deidentificationConfirmed) {
     blocking.push(issue("deidentification-unconfirmed", "validation.confirmDeidentification", { fieldId: "evidenceDeidentified" }));
   }

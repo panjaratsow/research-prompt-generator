@@ -105,19 +105,34 @@ export function renderValidation(root, preflight, locale) {
 }
 
 function readinessIcon(readiness) {
-  return readiness === "ready" ? "vendor/icons/circle-check.svg" : "vendor/icons/triangle-alert.svg";
+  return readiness.status === "ready" ? "vendor/icons/circle-check.svg" : "vendor/icons/triangle-alert.svg";
+}
+
+function readinessStatusKey(readiness) {
+  return {
+    "not-started": "stageNotStarted",
+    remaining: "stageRemaining",
+    ready: "stageReady",
+    blocked: "stageBlocked",
+  }[readiness.status];
+}
+
+function readinessLabel(locale, readiness) {
+  return t(locale, readinessStatusKey(readiness), {
+    count: readiness.remaining,
+    reason: readiness.reasonCode,
+  });
 }
 
 export function updateLifecycleReadiness(root, preflight, locale) {
   root.querySelectorAll("[data-action='stage']").forEach(button => {
-    const readiness = preflight.readinessByStage[button.dataset.stageId] ?? "incomplete";
-    const statusKey = `stage${readiness[0].toUpperCase()}${readiness.slice(1)}`;
+    const readiness = preflight.readinessByStage[button.dataset.stageId] ?? { status: "not-started", remaining: 0, reasonCode: "" };
     const stageLabel = t(locale, `stages.${button.dataset.stageId}`);
     const icon = button.querySelector("[data-stage-icon]");
     icon.src = readinessIcon(readiness);
-    icon.className = `stage-icon ${readiness}`;
-    button.querySelector("[data-stage-status]").textContent = t(locale, statusKey);
-    button.setAttribute("aria-label", `${stageLabel}: ${t(locale, statusKey)}`);
+    icon.className = `stage-icon ${readiness.status}`;
+    button.querySelector("[data-stage-status]").textContent = readinessLabel(locale, readiness);
+    button.setAttribute("aria-label", `${stageLabel}: ${readinessLabel(locale, readiness)}`);
   });
 }
 
@@ -150,17 +165,16 @@ export function renderWorkspace(root, state, preflight) {
   root.querySelector("#lifecycleRail").replaceChildren(
     element("div", { className: "rail-heading", textContent: t(locale, "lifecycle") }),
     ...LIFECYCLE_STAGES.map(stage => {
-      const readiness = preflight.readinessByStage[stage.id] ?? "incomplete";
-      const statusKey = `stage${readiness[0].toUpperCase()}${readiness.slice(1)}`;
+      const readiness = preflight.readinessByStage[stage.id] ?? { status: "not-started", remaining: 0, reasonCode: "" };
       return element("button", {
       type: "button",
       className: `stage-button${stage.id === state.stageId ? " active" : ""}`,
       dataset: { action: "stage", stageId: stage.id },
       "aria-current": stage.id === state.stageId ? "step" : null,
       }, [
-        element("img", { className: `stage-icon ${readiness}`, src: readinessIcon(readiness), alt: "", dataset: { stageIcon: "" } }),
+        element("img", { className: `stage-icon ${readiness.status}`, src: readinessIcon(readiness), alt: "", dataset: { stageIcon: "" } }),
         element("span", { className: "stage-label", textContent: t(locale, `stages.${stage.id}`) }),
-        element("span", { className: "stage-status", textContent: t(locale, statusKey), dataset: { stageStatus: "" } }),
+        element("span", { className: "stage-status", textContent: readinessLabel(locale, readiness), dataset: { stageStatus: "" } }),
       ]);
     })
   );

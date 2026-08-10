@@ -28,6 +28,19 @@ describe("localized copy", () => {
     expect(t("th", "stageConfirmText")).toBe("การเปลี่ยนขั้นตอนการวิจัยจะล้างข้อมูลต่อไปนี้:");
   });
 
+  it("localizes actionable readiness and adaptive validation messages", () => {
+    expect(t("th", "stageNotStarted")).toBe("ยังไม่เริ่ม");
+    expect(t("en", "stageRemaining", { count: 2 })).toBe("2 required items remaining");
+    expect(t("th", "stageBlocked", { reason: "deidentification-unconfirmed" }))
+      .toBe("ถูกระงับ: deidentification-unconfirmed");
+    expect(t("en", "validation.validationStaleOption"))
+      .toBe("A previous choice is incompatible with the current setup. Choose a replacement.");
+    expect(t("th", "validation.validationOtherRequired"))
+      .toBe("กรุณาระบุรายละเอียดสำหรับตัวเลือกอื่น");
+    expect(t("en", "validation.validationDraftError"))
+      .toBe("The draft could not be refreshed; the previous text is preserved.");
+  });
+
   it.each([
     "empty-text",
     "invalid-utf8",
