@@ -266,6 +266,101 @@ test("target-output selector enables every deliverable and maps it directly to i
   }
 });
 
+test("Target output navigation preserves carry-forward context", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research topic").fill("Cardiac remodelling");
+
+  await page.getByLabel("Target output").selectOption("evidence-synthesis");
+  await expect(page.locator('[data-action="stage"][data-stage-id="synthesize-information"]'))
+    .toHaveAttribute("aria-current", "step");
+
+  await page.locator('[data-action="stage"][data-stage-id="define-question"]').click();
+  await expect(page.getByLabel("Research topic")).toHaveValue("Cardiac remodelling");
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  await expect(page.getByTestId("inherited-context")).toContainText("Cardiac remodelling");
+});
+
+test("keyboard adaptive controls preserve native checkbox and segmented-radio behavior", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  const medline = page.getByRole("checkbox", { name: "MEDLINE/PubMed" });
+  await medline.focus();
+  await page.keyboard.press("Space");
+  await expect(medline).toBeChecked();
+  await expect(medline).toBeFocused();
+
+  await page.locator('[data-action="stage"][data-stage-id="generate-hypotheses"]').click();
+  const directional = page.getByRole("radio", { name: "Directional", exact: true });
+  await directional.focus();
+  await page.keyboard.press("ArrowRight");
+  const nonDirectional = page.getByRole("radio", { name: "Non-directional", exact: true });
+  await expect(nonDirectional).toBeChecked();
+  await expect(nonDirectional).toBeFocused();
+
+  const advanced = page.getByRole("button", { name: "Advanced details" });
+  await advanced.focus();
+  await page.keyboard.press("Enter");
+  await expect(advanced).toHaveAttribute("aria-expanded", "true");
+
+  const profile = page.getByRole("button", { name: "Research profile" });
+  await profile.focus();
+  await page.keyboard.press("Enter");
+  await expect(profile).toHaveAttribute("aria-expanded", "true");
+});
+
+test("Edit context returns to the canonical source control with focus", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research topic").fill("Cardiac remodelling");
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+
+  await page.getByRole("button", { name: "Edit Research topic" }).click();
+  await expect(page.locator('[data-action="stage"][data-stage-id="define-question"]')).toHaveAttribute("aria-current", "step");
+  await expect(page.getByLabel("Research topic")).toBeFocused();
+});
+
+test("Other confirmation restores the old choice on Escape and clears only custom text on confirm", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  const questionType = page.getByLabel("Question type");
+  await questionType.selectOption("other");
+  const other = page.getByLabel("Other - specify");
+  await other.fill("Mechanistic question");
+
+  await questionType.selectOption("prognosis");
+  await expect(page.getByRole("dialog")).toContainText("Question type");
+  await expect(page.getByRole("dialog")).not.toContainText("Mechanistic question");
+  await page.keyboard.press("Escape");
+  await expect(questionType).toHaveValue("other");
+  await expect(questionType).toBeFocused();
+  await expect(page.getByLabel("Other - specify")).toHaveValue("Mechanistic question");
+
+  await questionType.selectOption("prognosis");
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(questionType).toHaveValue("prognosis");
+  await expect(page.getByLabel("Other - specify")).toHaveCount(0);
+});
+
+test("hidden Advanced incompatibility confirmation localizes field labels", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research type").selectOption("prediction");
+  await page.getByLabel("Study subtype or design").selectOption("prediction-external-validation");
+  await page.evaluate(() => window.__TEST_ONLY__.setFieldValue("externalValidation", "Plan external validation"));
+
+  await page.getByLabel("Study subtype or design").selectOption("prediction-development");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("External validation");
+  await expect(dialog).not.toContainText("externalValidation");
+  await expect(dialog).not.toContainText("Plan external validation");
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel("Study subtype or design")).toHaveValue("prediction-external-validation");
+  await expect(page.getByLabel("Study subtype or design")).toBeFocused();
+});
+
 test("uploaded synthesis deidentifies, includes, copies, and downloads the searchable-PDF SOURCE block", async ({ page }) => {
   await page.addInitScript(() => {
     window.copiedPromptText = "";

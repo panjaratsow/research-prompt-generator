@@ -262,7 +262,7 @@ export function renderContextStrip(state, locale) {
   if (!items.length) return element("div", { hidden: true, dataset: { testid: "context-strip" } });
   return element("section", { className: "context-strip", dataset: { testid: "context-strip" } }, [
     element("h3", { textContent: t(locale, "inheritedContext") }),
-    element("ul", { className: "context-list" }, items),
+    element("div", { dataset: { testid: "inherited-context" } }, [element("ul", { className: "context-list" }, items)]),
   ]);
 }
 

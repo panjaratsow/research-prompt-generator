@@ -17,7 +17,7 @@ function controlLabel(label, control) {
 }
 
 function setupSelect(locale, labelKey, fieldId, value, values, optionKey) {
-  const control = element("select", { dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value)));
+  const control = element("select", { id: `setup-${fieldId}`, dataset: { action: "setup-field", setupField: fieldId } }, values.map(id => option(id, t(locale, `${optionKey}.${id}`), id === value)));
   return controlLabel(t(locale, labelKey), control);
 }
 
@@ -106,9 +106,9 @@ export function renderWorkspace(root, state, preflight) {
   reset.title = t(locale, "actions.reset");
 
   const researchType = element("select", { id: "researchType", dataset: { action: "research-type" } }, RESEARCH_TYPES.map(type => option(type.id, t(locale, `researchTypes.${type.id}`), type.id === state.researchTypeId)));
-  const studyDesign = element("select", { dataset: { action: "study-design" } }, getStudyDesignOptions(state.researchTypeId).map(design => option(design.id, t(locale, `studyDesigns.${design.id}`), design.id === state.studyDesignId)));
-  const evidenceMode = element("select", { dataset: { action: "evidence-mode" } }, ["planning", "uploaded", "web-research"].map(id => option(id, t(locale, `evidenceModes.${id}`), id === state.evidenceMode)));
-  const outputLanguage = element("select", { dataset: { action: "output-language" } }, ["thai", "english", "bilingual"].map(id => option(id, t(locale, `outputLanguages.${id}`), id === state.outputLanguage)));
+  const studyDesign = element("select", { id: "studyDesign", dataset: { action: "study-design" } }, getStudyDesignOptions(state.researchTypeId).map(design => option(design.id, t(locale, `studyDesigns.${design.id}`), design.id === state.studyDesignId)));
+  const evidenceMode = element("select", { id: "evidenceMode", dataset: { action: "evidence-mode" } }, ["planning", "uploaded", "web-research"].map(id => option(id, t(locale, `evidenceModes.${id}`), id === state.evidenceMode)));
+  const outputLanguage = element("select", { id: "outputLanguage", dataset: { action: "output-language" } }, ["thai", "english", "bilingual"].map(id => option(id, t(locale, `outputLanguages.${id}`), id === state.outputLanguage)));
   const targetOutput = setupSelect(locale, "targetOutput", "targetOutput", state.targetOutput, TARGET_OUTPUTS, "targetOutputs");
   const controls = [
     controlLabel(t(locale, "researchType"), researchType),

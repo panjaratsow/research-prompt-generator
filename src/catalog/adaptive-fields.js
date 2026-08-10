@@ -93,7 +93,9 @@ function fieldDefinition(id, overrides = {}) {
   });
 }
 
-const CATALOGUE_FIELDS = [...STAGE_FIELD_IDS].map(id => fieldDefinition(id, id === "confirmedDesign" ? {
+const CATALOGUE_FIELDS = [...STAGE_FIELD_IDS].map(id => fieldDefinition(id, id === "hypothesisApproach" ? {
+  control: "segmented",
+} : id === "confirmedDesign" ? {
   readOnly: true,
   allowOther: false,
   allowNotSure: false,
