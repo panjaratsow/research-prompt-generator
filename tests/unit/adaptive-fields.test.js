@@ -51,6 +51,11 @@ describe("adaptive field catalogue", () => {
           expect(form.simple.filter(field => field.required).length).toBeLessThanOrEqual(5);
           expect(form.draft.id).toBe(DRAFT_FIELDS[stage.id]);
           expect(form.simple.map(field => field.id)).toEqual(expect.arrayContaining(SIMPLE_FIELDS[stage.id]));
+          for (const field of [...form.simple, ...form.advanced]) {
+            if (["single-select", "multi-select", "segmented"].includes(field.control)) {
+              expect(field.options).not.toEqual([]);
+            }
+          }
         });
       }
     }
@@ -91,6 +96,15 @@ describe("adaptive field catalogue", () => {
       .toContain("uploaded-source-set");
     expect(resolveFieldOptions("informationSources", context("observational", "cohort", "planning")).map(option => option.id))
       .not.toContain("uploaded-source-set");
+  });
+
+  it("resolves confirmed design to only the selected valid study design", () => {
+    expect(resolveFieldOptions("confirmedDesign", context("observational", "case-control", "planning")))
+      .toEqual([{ id: "case-control", labelKey: "options.case-control" }]);
+    expect(resolveFieldOptions("confirmedDesign", context("observational", "invalid-design", "planning")))
+      .toEqual([]);
+    expect(resolveFieldOptions("confirmedDesign", context("observational", undefined, "planning")))
+      .toEqual([]);
   });
 
   it("keeps selected research-family legacy fields compatible across stages", () => {

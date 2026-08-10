@@ -1,5 +1,6 @@
 import { LIFECYCLE_STAGES } from "./lifecycle-stages.js";
 import { RESEARCH_TYPES } from "./research-types.js";
+import { getStudyDesignOptions } from "./index.js";
 import {
   NOT_SURE_OPTION_ID,
   OTHER_OPTION_ID,
@@ -168,15 +169,13 @@ function resolvePlacement(field, context) {
   return field.placements.find(placement => placement.stageId === context.stageId && isPlacementCompatible(placement, context));
 }
 
-function studyDesignOptions(context) {
-  return RESEARCH_TYPES.find(type => type.id === context.researchTypeId)?.designs ?? [];
-}
-
 export function resolveFieldOptions(fieldId, context = {}) {
   const field = getFieldDefinition(fieldId);
   if (!field) return [];
+  const selectedDesign = getStudyDesignOptions(context.researchTypeId)
+    .find(design => design.id === context.studyDesignId);
   const optionIds = fieldId === "confirmedDesign"
-    ? studyDesignOptions(context).map(design => design.id)
+    ? selectedDesign ? [selectedDesign.id] : []
     : resolveOptionIds(field.optionSetId, context);
   const permitted = [
     ...optionIds,
