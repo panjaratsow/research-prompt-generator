@@ -292,6 +292,20 @@ describe("state transitions", () => {
       .toBe(syncDrafts(transitioned, "en").drafts.proposalOutline.value);
   });
 
+  it("refreshes customized methodology suggestions for structured design changes", () => {
+    let state = syncDrafts(createInitialState(), "en");
+    state = setDraftValue(state, "methodologyOutline", "Approved methodology wording");
+    const before = state.drafts.methodologyOutline.suggested;
+    const transitioned = setStudyDesign(state, "case-control", true).state;
+
+    expect(transitioned.drafts.methodologyOutline).toMatchObject({
+      value: "Approved methodology wording",
+      customized: true,
+    });
+    expect(transitioned.drafts.methodologyOutline.suggested).not.toBe(before);
+    expect(transitioned.fields.methodologyOutline).toBe("Approved methodology wording");
+  });
+
   it("carries canonical and completed stage products through all seven stages", () => {
     let state = createInitialState();
     state = setField(state, "topic", "Cardiac remodelling");

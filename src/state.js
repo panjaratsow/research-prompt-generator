@@ -258,11 +258,11 @@ export function applyContextTransition(state, nextContext, analysis) {
 
 export function setInterfaceLocale(state, locale) {
   assertEnum(locale, INTERFACE_LOCALES);
-  return syncDrafts({ ...state, interfaceLocale: locale }, locale);
+  return syncDrafts({ ...state, interfaceLocale: locale }, locale, "locale");
 }
 
-export function syncDrafts(state, locale = state.interfaceLocale) {
-  return syncComposedDrafts(state, locale);
+export function syncDrafts(state, locale = state.interfaceLocale, mode = "structured") {
+  return syncComposedDrafts(state, locale, mode);
 }
 
 export function setDraftValue(state, draftId, value) {

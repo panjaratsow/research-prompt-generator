@@ -69,6 +69,17 @@ describe("deterministic draft composition", () => {
       .toContain("Treat the selected pattern as provisional unless supported by permitted sources");
   });
 
+  it("preserves medical short-text terminology exactly", () => {
+    const state = completeStructuredState();
+    state.fields.topic = "T-cell/BRCA1-related disease";
+    state.fields.primaryOutcome = "CD4+ T-cell count";
+
+    const draft = composeSuggestedDraft(state, "researchQuestion", "en");
+
+    expect(draft).toContain("T-cell/BRCA1-related disease");
+    expect(draft).toContain("CD4+ T-cell count");
+  });
+
   it("includes available inherited topic and population in every downstream template", () => {
     for (const draftId of ["searchStrategy", "evidenceSummary", "researchGaps", "hypotheses", "methodologyOutline", "proposalOutline"]) {
       const draft = composeSuggestedDraft(completeStructuredState(), draftId, "en");
@@ -86,6 +97,39 @@ describe("deterministic draft composition", () => {
 
     const draft = composeSuggestedDraft(state, "proposalOutline", "en");
     expect(draft).not.toContain("PRIVATE-EVIDENCE");
+  });
+
+  it("preserves the visible draft and stores only an error code when composition fails", () => {
+    const state = syncDrafts(completeStructuredState(), "en");
+    const previous = {
+      suggested: "Prior suggestion",
+      value: "Prior visible draft",
+      customized: false,
+      error: "",
+    };
+    const fields = new Proxy({ ...state.fields, researchQuestion: previous.value }, {
+      get(target, property, receiver) {
+        if (property === "topic") throw new Error("PRIVATE-USER-CONTENT");
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    let failed;
+
+    expect(() => {
+      failed = syncDrafts({
+        ...state,
+        fields,
+        drafts: { ...state.drafts, researchQuestion: previous },
+        sources: [{ text: "PRIVATE-SOURCE-CONTENT" }],
+      }, "en");
+    }).not.toThrow();
+    expect(failed.drafts.researchQuestion).toEqual({
+      ...previous,
+      error: "composition-failed",
+    });
+    expect(failed.fields.researchQuestion).toBe(previous.value);
+    expect(JSON.stringify(failed.drafts.researchQuestion)).not.toContain("PRIVATE-USER-CONTENT");
+    expect(JSON.stringify(failed.drafts.researchQuestion)).not.toContain("PRIVATE-SOURCE-CONTENT");
   });
 });
 
@@ -120,12 +164,24 @@ describe("draft ownership", () => {
   it("recomputes locale changes only for uncustomized drafts", () => {
     let state = syncDrafts(completeStructuredState(), "en");
     state = setDraftValue(state, "researchQuestion", "My approved question");
+    const customized = {
+      ...state.drafts.researchQuestion,
+      error: "existing-error",
+    };
+    state = {
+      ...state,
+      fields: new Proxy(state.fields, {
+        get(target, property, receiver) {
+          if (property === "topic") throw new Error("LOCALE-PRIVATE-CONTENT");
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+      drafts: { ...state.drafts, researchQuestion: customized },
+    };
     const localized = setInterfaceLocale(state, "th");
 
-    expect(localized.drafts.researchQuestion).toMatchObject({
-      value: "My approved question",
-      customized: true,
-    });
+    expect(localized.drafts.researchQuestion).toBe(customized);
+    expect(localized.drafts.researchQuestion).toEqual(customized);
     expect(localized.drafts.searchStrategy.customized).toBe(false);
     expect(localized.drafts.searchStrategy.value).toBe(localized.drafts.searchStrategy.suggested);
     expect(localized.drafts.searchStrategy.suggested).not.toBe(state.drafts.searchStrategy.suggested);

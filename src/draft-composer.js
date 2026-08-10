@@ -1,5 +1,5 @@
 import { DERIVED_FIELD_BY_STAGE, getFieldDefinition, getInheritedContextFields } from "./catalog/index.js";
-import { serializeDisplayValue } from "./field-values.js";
+import { getFieldValue, serializeDisplayValue } from "./field-values.js";
 import { t } from "./i18n.js";
 
 const DRAFT_IDS = Object.freeze(Object.values(DERIVED_FIELD_BY_STAGE));
@@ -9,11 +9,17 @@ function localeCode(locale) {
 }
 
 function display(state, fieldId, locale) {
+  const field = getFieldDefinition(fieldId);
+  const fallback = localeCode(locale) === "th" ? "ยังไม่ระบุ" : "Not specified";
+  if (field.control === "short-text" || field.control === "derived-text") {
+    const value = getFieldValue(state, fieldId);
+    return typeof value === "string" && value.trim() ? value : fallback;
+  }
   return serializeDisplayValue(
     state,
-    getFieldDefinition(fieldId),
+    field,
     localeCode(locale) === "th" ? "thai" : "english"
-  ) || (localeCode(locale) === "th" ? "ยังไม่ระบุ" : "Not specified");
+  ) || fallback;
 }
 
 function fieldLabel(fieldId, locale) {
@@ -160,22 +166,34 @@ function nextDraft(previous, suggested) {
   return { suggested, value: suggested, customized: false, error: "" };
 }
 
-export function syncDrafts(state, locale = state.interfaceLocale) {
+export function syncDrafts(state, locale = state.interfaceLocale, mode = "structured") {
   const drafts = { ...state.drafts };
-  const fields = { ...state.fields };
+  let fields;
+  const currentFields = () => fields ?? state.fields ?? {};
+  const writableFields = () => {
+    if (!fields) {
+      fields = Object.defineProperties({}, Object.getOwnPropertyDescriptors(state.fields ?? {}));
+    }
+    return fields;
+  };
 
   for (const draftId of DRAFT_IDS) {
     const previous = drafts[draftId] ?? { suggested: "", value: "", customized: false, error: "" };
+    if (mode === "locale" && previous.customized) {
+      drafts[draftId] = previous;
+      writableFields()[draftId] = previous.value;
+      continue;
+    }
     try {
-      const suggested = composeSuggestedDraft({ ...state, drafts, fields }, draftId, locale);
+      const suggested = composeSuggestedDraft({ ...state, drafts, fields: currentFields() }, draftId, locale);
       const next = nextDraft(previous, suggested);
       drafts[draftId] = next;
-      fields[draftId] = next.value;
+      writableFields()[draftId] = next.value;
     } catch {
       drafts[draftId] = { ...previous, error: "composition-failed" };
-      fields[draftId] = previous.value;
+      writableFields()[draftId] = previous.value;
     }
   }
 
-  return { ...state, drafts, fields };
+  return { ...state, drafts, fields: currentFields() };
 }
