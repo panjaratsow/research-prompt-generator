@@ -18,6 +18,15 @@ function withFields(state, fields) {
   );
 }
 
+function completeDefineQuestionState() {
+  return withFields(createInitialState(), {
+    topic: "Cardiac remodelling",
+    population: "Adults with heart failure",
+    questionType: "prognosis",
+    primaryOutcome: "Hospital admission",
+  });
+}
+
 describe("preflight validation", () => {
   it("blocks an incomplete planning prompt", () => {
     const result = validateState(createInitialState());
@@ -149,13 +158,66 @@ describe("preflight validation", () => {
     expect(JSON.stringify(result)).not.toContain(staleValue);
   });
 
-  it("warns for omitted Advanced fields without blocking ordinary readiness", () => {
-    const state = withFields(createInitialState(), {
-      topic: "Cardiac remodelling",
-      population: "Adults with heart failure",
-      questionType: "prognosis",
-      primaryOutcome: "Hospital admission",
+  it("counts a stale required option as one remaining decision", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      fields: { ...complete.fields, questionType: "obsolete-question-type" },
+    };
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["questionType"],
+      reasonCode: "",
     });
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "stale-field-option",
+      fieldId: "questionType",
+    }));
+  });
+
+  it("counts a current design-critical draft error as one remaining decision", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      drafts: {
+        ...complete.drafts,
+        researchQuestion: { ...complete.drafts.researchQuestion, error: "composition-failed" },
+      },
+    };
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["researchQuestion"],
+      reasonCode: "",
+    });
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "draft-composition-failed",
+      fieldId: "researchQuestion",
+    }));
+  });
+
+  it("counts a field only once when it is both incomplete and stale", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      fields: { ...complete.fields, questionType: ["other", "obsolete-question-type"] },
+    };
+
+    expect(validateState(state).readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["questionType"],
+      reasonCode: "",
+    });
+  });
+
+  it("warns for omitted Advanced fields without blocking ordinary readiness", () => {
+    const state = completeDefineQuestionState();
     const result = validateState(state);
 
     expect(result.readinessByStage["define-question"].status).toBe("ready");

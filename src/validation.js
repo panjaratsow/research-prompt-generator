@@ -63,20 +63,30 @@ export function getRequiredFieldIds(typeId, stageId, studyDesignId, evidenceMode
 
 function calculateStageReadiness(state, stageId, globalBlockers) {
   const context = { ...state, stageId, fields: state.fields ?? {} };
+  const form = getStageFieldDefinitions(context);
   const required = requiredFieldsForStage(context);
-  const missingFieldIds = required
+  const missingFieldIds = new Set(required
     .filter(field => !isFieldComplete(state, field))
-    .map(field => field.id);
+    .map(field => field.id));
+  for (const field of required) {
+    if (getStaleOptionIds(state, field, context).length) missingFieldIds.add(field.id);
+  }
+  if (stageId === state.stageId
+    && form.draft?.designCritical
+    && state.drafts?.[form.draft.id]?.error === "composition-failed") {
+    missingFieldIds.add(form.draft.id);
+  }
+  const missingIds = [...missingFieldIds];
   const started = required.some(field => hasMeaningfulValue(getFieldValue(state, field.id)));
 
   if (globalBlockers.length) return {
     status: "blocked",
-    remaining: missingFieldIds.length,
-    missingFieldIds,
+    remaining: missingIds.length,
+    missingFieldIds: missingIds,
     reasonCode: globalBlockers[0].code,
   };
-  if (!started) return { status: "not-started", remaining: missingFieldIds.length, missingFieldIds, reasonCode: "" };
-  if (missingFieldIds.length) return { status: "remaining", remaining: missingFieldIds.length, missingFieldIds, reasonCode: "" };
+  if (!started) return { status: "not-started", remaining: missingIds.length, missingFieldIds: missingIds, reasonCode: "" };
+  if (missingIds.length) return { status: "remaining", remaining: missingIds.length, missingFieldIds: missingIds, reasonCode: "" };
   return { status: "ready", remaining: 0, missingFieldIds: [], reasonCode: "" };
 }
 
