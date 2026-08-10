@@ -4,6 +4,7 @@ import {
   setSetupField, setStage, setStudyDesign, replaceSources,
 } from "./src/state.js";
 import { resolveStandards } from "./src/catalog/index.js";
+import { readFieldInputValue } from "./src/field-values.js";
 import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
 import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
@@ -141,7 +142,11 @@ function requestStage(nextId) {
 root.addEventListener("input", event => {
   const fieldId = event.target.dataset.fieldId;
   if (fieldId) {
-    update(setField(state, fieldId, event.target.value), "set-field", false);
+    const relatedControls = event.target.type === "checkbox"
+      ? [...root.querySelectorAll("input[type='checkbox'][data-field-id]")]
+        .filter(control => control.dataset.fieldId === fieldId)
+      : [];
+    update(setField(state, fieldId, readFieldInputValue(event.target, relatedControls)), "set-field", false);
     const preflight = validateState(state);
     renderValidation(root, preflight, state.interfaceLocale);
     updateLifecycleReadiness(root, preflight, state.interfaceLocale);

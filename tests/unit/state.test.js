@@ -148,6 +148,23 @@ describe("state transitions", () => {
     expect(() => setSetupField(state, "citationStyle", "Invented style")).toThrow(RangeError);
   });
 
+  it("requires confirmation before clearing an option incompatible with the next study design", () => {
+    let state = setResearchType(createInitialState(), "prediction", true).state;
+    state = setField(state, "analysisFamily", "development");
+
+    const pending = setStudyDesign(state, "prediction-external-validation");
+    expect(pending.needsConfirmation).toBe(true);
+    expect(pending.analysis).toEqual({
+      fieldIds: [],
+      optionIdsByField: { analysisFamily: ["development"] },
+    });
+    expect(pending.state.fields.analysisFamily).toBe("development");
+
+    const confirmed = setStudyDesign(state, "prediction-external-validation", true, pending.analysis);
+    expect(confirmed.state.studyDesignId).toBe("prediction-external-validation");
+    expect(confirmed.state.fields.analysisFamily).toBeUndefined();
+  });
+
   it("uses structural sharing for evidence text during unrelated updates", () => {
     const source = { id: "S1", text: "private evidence", warnings: [] };
     const withSources = replaceSources(createInitialState(), [source]);
@@ -189,6 +206,47 @@ describe("state transitions", () => {
     });
     expect(JSON.stringify(publicState)).not.toContain("private source text");
     expect(JSON.stringify(publicState)).not.toContain("internal-source-key");
+    expect(publicState.sources[0]).not.toHaveProperty("file");
+  });
+
+  it("publishes independent typed arrays and draft metadata while keeping sources redacted", () => {
+    let state = setField(createInitialState(), "informationSources", ["medline", "embase"]);
+    state = {
+      ...state,
+      drafts: {
+        ...state.drafts,
+        researchQuestion: {
+          suggested: "Suggested question",
+          value: "Customized question",
+          customized: true,
+          error: "",
+        },
+      },
+    };
+    state = replaceSources(state, [{
+      _key: "private-source-key",
+      id: "S1",
+      filename: "private.txt",
+      type: "text/plain",
+      status: "ready",
+      included: true,
+      text: "private source text",
+      file: { name: "private.txt" },
+      warnings: [],
+    }]);
+
+    const publicState = createPublicWorkspaceState(state);
+
+    expect(publicState.fields.informationSources).toEqual(["medline", "embase"]);
+    expect(publicState.fields.informationSources).not.toBe(state.fields.informationSources);
+    expect(publicState.drafts.researchQuestion).toEqual(state.drafts.researchQuestion);
+    expect(publicState.drafts.researchQuestion).not.toBe(state.drafts.researchQuestion);
+    publicState.fields.informationSources.push("other");
+    publicState.drafts.researchQuestion.value = "Changed publicly";
+    expect(state.fields.informationSources).toEqual(["medline", "embase"]);
+    expect(state.drafts.researchQuestion.value).toBe("Customized question");
+    expect(JSON.stringify(publicState)).not.toContain("private source text");
+    expect(JSON.stringify(publicState)).not.toContain("private-source-key");
     expect(publicState.sources[0]).not.toHaveProperty("file");
   });
 

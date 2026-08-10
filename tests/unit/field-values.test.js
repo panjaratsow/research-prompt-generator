@@ -7,6 +7,7 @@ import {
   hasMeaningfulValue,
   isFieldComplete,
   normalizeFieldValue,
+  readFieldInputValue,
   serializeDisplayValue,
 } from "../../src/field-values.js";
 import { createInitialState, setField, setFieldCustomValue } from "../../src/state.js";
@@ -47,6 +48,28 @@ describe("typed field values", () => {
     expect(isFieldComplete(state, multi)).toBe(false);
     state = setFieldCustomValue(state, "informationSources", "  ThaiJO ");
     expect(getOtherText(state, "informationSources")).toBe("ThaiJO");
+  });
+
+  it("rejects non-string entries in multi-select arrays", () => {
+    const field = getFieldDefinition("informationSources");
+
+    expect(() => normalizeFieldValue(field, ["medline", { id: "embase" }])).toThrow(TypeError);
+  });
+
+  it("adapts checkbox groups and legacy text controls to multi-select arrays", () => {
+    const checkbox = { dataset: { fieldId: "informationSources" }, type: "checkbox", value: "medline", checked: true };
+    const group = [
+      checkbox,
+      { dataset: { fieldId: "informationSources" }, type: "checkbox", value: "embase", checked: false },
+      { dataset: { fieldId: "informationSources" }, type: "checkbox", value: "other", checked: true },
+    ];
+
+    expect(readFieldInputValue(checkbox, group)).toEqual(["medline", "other"]);
+    expect(readFieldInputValue({ dataset: { fieldId: "informationSources" }, value: " medline " }))
+      .toEqual([" medline "]);
+    expect(readFieldInputValue({ dataset: { fieldId: "informationSources" }, value: "  " })).toEqual([]);
+    expect(readFieldInputValue({ dataset: { fieldId: "topic" }, value: "Cardiac remodelling" }))
+      .toBe("Cardiac remodelling");
   });
 
   it("serializes deterministic localized labels instead of IDs", () => {

@@ -1,6 +1,7 @@
 import {
   NOT_SURE_OPTION_ID,
   OTHER_OPTION_ID,
+  getFieldDefinition,
   isFieldOptionCompatible,
   resolveFieldOptions,
 } from "./catalog/index.js";
@@ -18,11 +19,25 @@ export function getOtherText(state, fieldId) {
 export function normalizeFieldValue(field, value) {
   if (field.control === "multi-select") {
     if (!Array.isArray(value)) throw new TypeError(`${field.id} requires an array`);
-    const normalized = [...new Set(value.map(String).map(item => item.trim()).filter(Boolean))];
+    if (value.some(item => typeof item !== "string")) {
+      throw new TypeError(`${field.id} requires an array of strings`);
+    }
+    const normalized = [...new Set(value.map(item => item.trim()).filter(Boolean))];
     return normalized.includes(NOT_SURE_OPTION_ID) ? [NOT_SURE_OPTION_ID] : normalized;
   }
   if (typeof value !== "string") throw new TypeError(`${field.id} requires a string`);
   return value.trim();
+}
+
+export function readFieldInputValue(target, relatedControls = []) {
+  const fieldId = target?.dataset?.fieldId;
+  const field = getFieldDefinition(fieldId);
+  if (!field) throw new RangeError(`Unknown field: ${fieldId}`);
+  if (field.control !== "multi-select") return target.value;
+  if (target.type === "checkbox") {
+    return [...relatedControls].filter(control => control.checked).map(control => control.value);
+  }
+  return target.value.trim() ? [target.value] : [];
 }
 
 export function hasMeaningfulValue(value) {
