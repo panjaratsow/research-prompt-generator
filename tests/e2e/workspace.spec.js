@@ -541,7 +541,7 @@ test("updates question readiness while the final required field remains focused"
   expect(await outcome.evaluate(input => input.selectionStart === input.value.length)).toBe(true);
 });
 
-test("renders warnings, Advanced controls, and visible lifecycle readiness text with icons", async ({ page }) => {
+test("resolves contextual warnings through visible compact stage controls", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research type").selectOption("prediction");
@@ -549,13 +549,35 @@ test("renders warnings, Advanced controls, and visible lifecycle readiness text 
   await page.locator('[data-action="stage"][data-stage-id="outline-methodology"]').click();
 
   const warnings = page.getByTestId("preflight-warnings");
-  await expect(warnings).toContainText("Consider study registration");
   await expect(warnings).toContainText("Consider ethics approval");
-  await expect(warnings).toContainText("Consider a data-sharing plan");
-  await expect(warnings).toContainText("Consider external validation");
+  await expect(page.getByLabel("Feasibility period")).toBeVisible();
+  await page.getByLabel("Feasibility period").selectOption("13-24-months");
   await page.getByRole("button", { name: "Advanced details" }).click();
-  await expect(page.getByLabel("Sample-size plan")).toBeVisible();
-  await expect(page.getByLabel("Ethics and governance")).toBeVisible();
+  const methodologyEthics = page.getByLabel("Ethics and governance");
+  await expect(methodologyEthics).toBeVisible();
+  await methodologyEthics.fill("Seek institutional review before recruitment.");
+  await expect(warnings).not.toContainText("Consider ethics approval");
+
+  await page.locator('[data-action="stage"][data-stage-id="write-proposal"]').click();
+  await expect(page.getByLabel("Proposal timeline")).toBeVisible();
+  await page.getByLabel("Proposal timeline").selectOption("24-months");
+  await page.getByRole("button", { name: "Advanced details" }).click();
+
+  const registration = page.getByLabel("Study registration");
+  const dataSharing = page.getByLabel("Data sharing plan");
+  const governance = page.getByLabel("Detailed governance");
+  await expect(registration).toBeVisible();
+  await expect(dataSharing).toBeVisible();
+  await expect(governance).toBeVisible();
+  await expect(warnings).toContainText("Consider study registration");
+  await expect(warnings).toContainText("Consider a data-sharing plan");
+  await expect(warnings).toContainText("Consider ethics approval");
+  await registration.fill("Register prospectively before enrolment.");
+  await expect(warnings).not.toContainText("Consider study registration");
+  await dataSharing.fill("Use controlled access with a data-use agreement.");
+  await expect(warnings).not.toContainText("Consider a data-sharing plan");
+  await governance.fill("Document ethics, data protection, and oversight responsibilities.");
+  await expect(warnings).not.toContainText("Consider ethics approval");
 
   const questionStage = page.locator('[data-action="stage"][data-stage-id="define-question"]');
   await expect(questionStage.locator("[data-stage-status]")).toBeVisible();

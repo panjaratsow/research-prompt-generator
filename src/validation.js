@@ -25,20 +25,36 @@ function issue(code, messageKey, { fieldId = "", sourceId = "" } = {}) {
   return { code, fieldId, sourceId, messageKey };
 }
 
+const DATA_SHARING_RESEARCH_TYPES = new Set(["observational", "prediction", "ai-health-data"]);
+
+function contextualIssue(state, fieldId) {
+  if (state.stageId === "outline-methodology") {
+    if (fieldId === "feasibilityPeriod") return issue("missing-feasibility", "validation.missingFeasibility", { fieldId });
+    if (fieldId === "ethicsGovernance") return issue("missing-ethics", "validation.missingEthics", { fieldId });
+  }
+  if (state.stageId === "write-proposal") {
+    if (fieldId === "proposalTimeline") return issue("missing-feasibility", "validation.missingFeasibility", { fieldId });
+    if (fieldId === "registration") return issue("missing-registration", "validation.missingRegistration", { fieldId });
+    if (fieldId === "dataSharingPlan" && DATA_SHARING_RESEARCH_TYPES.has(state.researchTypeId)) {
+      return issue("missing-data-sharing", "validation.missingDataSharing", { fieldId });
+    }
+    if (fieldId === "detailedGovernance") return issue("missing-ethics", "validation.missingEthics", { fieldId });
+  }
+  return null;
+}
+
 function requiredIssue(state, field) {
   const value = getFieldValue(state, field.id);
   const includesOther = (Array.isArray(value) ? value : [value]).includes("other");
   if (includesOther) {
     return issue(`missing-${field.id}`, "validation.validationOtherRequired", { fieldId: field.id });
   }
+  const contextual = contextualIssue(state, field.id);
+  if (contextual) return contextual;
   const { id: fieldId } = field;
   if (fieldId === "topic") return issue("missing-topic", "validation.missingTopic", { fieldId });
   if (fieldId === "researchQuestion") return issue("missing-question", "validation.missingQuestion", { fieldId });
   return issue(`missing-${fieldId}`, "validation.missingRequiredField", { fieldId });
-}
-
-function warningForMissingField(warnings, state, fieldId, code, messageKey) {
-  if (!hasMeaningfulValue(getFieldValue(state, fieldId))) warnings.push(issue(code, messageKey, { fieldId }));
 }
 
 function stageContext(typeId, stageId, studyDesignId, evidenceMode, fields) {
@@ -107,7 +123,9 @@ function addAdaptiveFieldIssues(state, blocking, warnings) {
   for (const field of form.advanced) {
     if (isFieldComplete(state, field)) continue;
     if (field.designCritical) blocking.push(requiredIssue(state, field));
-    else warnings.push(issue(`missing-${field.id}`, "validation.missingRequiredField", { fieldId: field.id }));
+    else if (!contextualIssue(state, field.id)) {
+      warnings.push(issue(`missing-${field.id}`, "validation.missingRequiredField", { fieldId: field.id }));
+    }
   }
   for (const field of [...form.simple, ...form.advanced]) {
     if (getStaleOptionIds(state, field, state).length) {
@@ -120,22 +138,12 @@ function addAdaptiveFieldIssues(state, blocking, warnings) {
 }
 
 function addContextualWarnings(state, warnings) {
-  const { researchTypeId, stageId } = state;
-  const methodsStages = new Set(["outline-methodology", "write-proposal"]);
-
-  if (methodsStages.has(stageId)) {
-    warningForMissingField(warnings, state, "resourcesTimeline", "missing-feasibility", "validation.missingFeasibility");
-    warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
-    warningForMissingField(warnings, state, "ethicsApproval", "missing-ethics", "validation.missingEthics");
-    if (["observational", "prediction", "ai-health-data"].includes(researchTypeId)) {
-      warningForMissingField(warnings, state, "dataSharingPlan", "missing-data-sharing", "validation.missingDataSharing");
+  const form = getStageFieldDefinitions(state);
+  for (const field of form.advanced) {
+    const contextual = contextualIssue(state, field.id);
+    if (contextual && !isFieldComplete(state, field)) {
+      warnings.push(contextual);
     }
-    if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(state.studyDesignId)) {
-      warningForMissingField(warnings, state, "externalValidation", "missing-external-validation", "validation.missingExternalValidation");
-    }
-  }
-  if (researchTypeId === "evidence-review" && stageId === "literature-review") {
-    warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
   }
 }
 

@@ -18,6 +18,19 @@ test("has no automatically detectable WCAG A or AA violations in localized page 
   await expect(page.locator("html")).toHaveAttribute("lang", "th");
   const thaiPageResults = await new AxeBuilder({ page }).withTags(tags).analyze();
   expect(thaiPageResults.violations).toEqual([]);
+  await page.getByRole("button", { name: /ข้อมูลผู้วิจัย/i }).click();
+  const thaiProfileResults = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(thaiProfileResults.violations).toEqual([]);
+
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  const englishAdvancedResults = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(englishAdvancedResults.violations).toEqual([]);
+  await page.getByLabel("Question type").selectOption("other");
+  await expect(page.getByLabel("Other - specify")).toBeVisible();
+  const englishOtherResults = await new AxeBuilder({ page }).withTags(tags).analyze();
+  expect(englishOtherResults.violations).toEqual([]);
+
   await openPromptDrawer(page);
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
   const englishDrawerResults = await new AxeBuilder({ page }).withTags(tags).analyze();

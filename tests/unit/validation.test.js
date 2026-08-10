@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createInitialState, setField } from "../../src/state.js";
-import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
+import { LIFECYCLE_STAGES, getStageFieldDefinitions } from "../../src/catalog/index.js";
 import {
   getRequiredFieldIds,
   validateState,
@@ -118,13 +118,49 @@ describe("preflight validation", () => {
       .toEqual(["confirmedDesign", "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod"]);
   });
 
-  it("derives readiness and warnings from the approved lifecycle boundaries", () => {
-    const state = { ...createInitialState(), stageId: "outline-methodology" };
-    const result = validateState(state);
-    expect(Object.keys(result.readinessByStage)).toEqual(LIFECYCLE_STAGES.map(stage => stage.id));
-    expect(result.warnings.map(issue => issue.code)).toEqual(expect.arrayContaining(["missing-feasibility", "missing-registration", "missing-ethics", "missing-data-sharing"]));
+  it("routes contextual methodology and proposal issues to active compact fields", () => {
+    const methodologyState = { ...createInitialState(), stageId: "outline-methodology" };
+    const methodology = validateState(methodologyState);
+    const activeMethodologyIds = getStageFieldDefinitions(methodologyState)
+      .simple.concat(getStageFieldDefinitions(methodologyState).advanced)
+      .map(field => field.id);
+
+    expect(Object.keys(methodology.readinessByStage)).toEqual(LIFECYCLE_STAGES.map(stage => stage.id));
+    expect(methodology.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-feasibility", fieldId: "feasibilityPeriod",
+    }));
+    expect(methodology.warnings).toContainEqual(expect.objectContaining({
+      code: "missing-ethics", fieldId: "ethicsGovernance",
+    }));
+    expect(activeMethodologyIds).toEqual(expect.arrayContaining(["feasibilityPeriod", "ethicsGovernance"]));
+    expect(methodology.warnings.map(issue => issue.code)).not.toEqual(expect.arrayContaining([
+      "missing-registration", "missing-data-sharing", "missing-external-validation",
+    ]));
+
+    const proposalState = {
+      ...createInitialState(),
+      researchTypeId: "prediction",
+      studyDesignId: "prediction-external-validation",
+      stageId: "write-proposal",
+    };
+    const proposal = validateState(proposalState);
+    const activeProposalIds = getStageFieldDefinitions(proposalState)
+      .simple.concat(getStageFieldDefinitions(proposalState).advanced)
+      .map(field => field.id);
+
+    expect(proposal.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-feasibility", fieldId: "proposalTimeline",
+    }));
+    expect(proposal.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "missing-registration", fieldId: "registration" }),
+      expect.objectContaining({ code: "missing-data-sharing", fieldId: "dataSharingPlan" }),
+      expect.objectContaining({ code: "missing-ethics", fieldId: "detailedGovernance" }),
+    ]));
+    expect(activeProposalIds).toEqual(expect.arrayContaining([
+      "proposalTimeline", "registration", "dataSharingPlan", "detailedGovernance",
+    ]));
     expect(validateState({ ...createInitialState(), researchTypeId: "evidence-review", studyDesignId: "systematic-review", stageId: "literature-review" }).warnings)
-      .toContainEqual(expect.objectContaining({ code: "missing-registration" }));
+      .not.toContainEqual(expect.objectContaining({ code: "missing-registration" }));
   });
 
   it("keeps Other incomplete until its custom text is supplied", () => {
@@ -238,45 +274,28 @@ describe("preflight validation", () => {
     });
   });
 
-  it("adds context-specific readiness warnings without document text", () => {
-    const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
-      {
-        topic: "Risk model",
-        problemStatement: "Clinical risk stratification is inconsistent",
-        population: "Adults in Thai referral hospitals",
-        researchQuestion: "Can predictors estimate cardiovascular risk?",
-        primaryOutcome: "One-year cardiovascular event",
-        methodologyOutline: "Prediction model validation",
-        resourcesTimeline: "12 months",
-        predictors: "Age and blood pressure",
-        endpointTiming: "One year",
-        developmentDataset: "Registry A",
-        validationDataset: "Registry B",
-      }
+  it("removes contextual issues when their compact controls are completed", () => {
+    const methodology = withFields(
+      { ...createInitialState(), stageId: "outline-methodology" },
+      { feasibilityPeriod: "13-24-months", ethicsGovernance: "Institutional review will be sought before recruitment." }
     );
-    const result = validateState(state);
-
-    expect(result.warnings.map(issue => issue.code)).toEqual(
-      expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
-    );
-    expect(JSON.stringify(result)).not.toContain("Clinical risk stratification is inconsistent");
-  });
-
-  it("removes contextual warnings when their rendered controls are completed", () => {
-    const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
+    const proposal = withFields(
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "write-proposal" },
       {
-        registration: "Registered prospectively",
-        ethicsApproval: "Local determination pending verification",
-        dataSharingPlan: "Controlled access",
-        externalValidation: "Independent hospital validation",
+        proposalTimeline: "24-months",
+        registration: "Register prospectively before enrolment.",
+        dataSharingPlan: "Use controlled access with a data-use agreement.",
+        detailedGovernance: "Document ethics, data protection, and oversight responsibilities.",
       }
     );
 
-    expect(validateState(state).warnings.map(issue => issue.code)).not.toEqual(
-      expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
-    );
+    for (const state of [methodology, proposal]) {
+      const result = validateState(state);
+      const issues = [...result.blocking, ...result.warnings];
+      expect(issues.map(issue => issue.code)).not.toEqual(expect.arrayContaining([
+        "missing-feasibility", "missing-registration", "missing-ethics", "missing-data-sharing",
+      ]));
+    }
   });
 
   it("maps upload and budget blockers to focusable evidence controls", () => {

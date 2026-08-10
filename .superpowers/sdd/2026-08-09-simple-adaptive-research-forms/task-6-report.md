@@ -94,3 +94,30 @@ Node syntax checks for `app.js`, `src/ui/adaptive-form.js`, `src/ui/dom.js`, and
 ## Commit
 
 `feat: render concise adaptive research forms` (this Task 6 commit).
+
+## Review-Fix Evidence
+
+### Scope Expansion
+
+- Modified `src/validation.js` and `tests/unit/validation.test.js` to align contextual issues with the approved compact `STAGE_FORM_FIELDS` contract.
+- Methodology now uses `feasibilityPeriod` for the feasibility requirement and `ethicsGovernance` for the ethics/governance warning.
+- Proposal now uses `proposalTimeline`, `registration`, `dataSharingPlan` (for observational, prediction, and AI-health-data research), and `detailedGovernance` for the applicable contextual paths.
+- Removed the evidence-review registration warning and external-validation warning because the compact active stages expose no focusable replacement control for either. This does not change prompt-generation safeguards against inventing registration, ethics approval, or evidence.
+- Replaced the masked workspace assertion with an end-to-end flow that opens the relevant Advanced regions, verifies each replacement control is visible, and verifies every applicable contextual issue clears when that control is completed.
+- Expanded Axe coverage to analyze the Thai initial page, Thai Research profile expanded, English Advanced details expanded, English Other active with its conditional input, and the existing English prompt drawer state.
+
+### RED Evidence
+
+Before the validation implementation change, the focused bundled-Node unit command exited 1 with `2 failed | 19 passed (21)`. It showed the stale `missing-feasibilityPeriod` generic issue instead of the expected `missing-feasibility` path for `feasibilityPeriod`, and the old contextual codes remained after completing compact replacement controls.
+
+```powershell
+& 'C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' node_modules\vitest\vitest.mjs run tests\unit\validation.test.js
+```
+
+### GREEN Evidence
+
+- Focused validation unit suite: exit 0; `Test Files 1 passed (1)`; `Tests 21 passed (21)`.
+- Full unit suite: exit 0; `Test Files 12 passed (12)`; `Tests 527 passed (527)`.
+- Affected desktop workspace E2E suite: exit 0; `36 passed (47.5s)`, including `resolves contextual warnings through visible compact stage controls`.
+- Desktop Axe regression: exit 0; `1 passed (9.9s)`, with no automatically detected WCAG A/AA violations in every requested expanded and conditional state.
+- `git diff --check`: exit 0 with no whitespace errors.
