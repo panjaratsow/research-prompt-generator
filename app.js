@@ -1,9 +1,9 @@
 import {
-  createInitialState, createPublicWorkspaceState, getIncompatiblePopulatedFieldIds, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
+  createInitialState, createPublicWorkspaceState, resetState, setDeidentificationConfirmed, setEvidenceMode, setField,
   setEvidenceBudget, setInterfaceLocale, setOutputLanguage, setPromptDrawer, setResearchType,
   setSetupField, setStage, setStudyDesign, replaceSources,
 } from "./src/state.js";
-import { getAdaptiveFieldIds, resolveStandards } from "./src/catalog/index.js";
+import { resolveStandards } from "./src/catalog/index.js";
 import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
 import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
@@ -43,12 +43,12 @@ function updateDeidentificationConfirmation(confirmed) {
   publish("set-deidentification");
 }
 function restoreTrigger(transition) {
-  const selector = transition.kind === "research-type" ? "#researchType" : transition.kind === "evidence-mode" ? "[data-action=\"evidence-mode\"]" : transition.kind === "reset" ? "#resetButton" : `[data-action="stage"][data-stage-id="${transition.nextId}"]`;
+  const selector = transition.kind === "research-type" ? "#researchType" : transition.kind === "study-design" ? "[data-action=\"study-design\"]" : transition.kind === "evidence-mode" ? "[data-action=\"evidence-mode\"]" : transition.kind === "reset" ? "#resetButton" : `[data-action="stage"][data-stage-id="${transition.nextId}"]`;
   root.querySelector(selector)?.focus();
 }
 
-function beginConfirmation(kind, nextId, incompatible) {
-  pendingTransition = { kind, nextId, incompatible };
+function beginConfirmation(kind, nextId, incompatible, analysis) {
+  pendingTransition = { kind, nextId, incompatible, analysis };
   renderConfirmation(root, incompatible.map(id => t(state.interfaceLocale, `fields.${id}`)), state.interfaceLocale, kind);
 }
 
@@ -70,7 +70,8 @@ function confirmTransition() {
     evidenceIssues = [];
     closePromptDrawer(root);
     next = resetState();
-  } else if (transition.kind === "research-type") next = setResearchType(state, transition.nextId, true).state;
+  } else if (transition.kind === "research-type") next = setResearchType(state, transition.nextId, true, transition.analysis).state;
+  else if (transition.kind === "study-design") next = setStudyDesign(state, transition.nextId, true, transition.analysis).state;
   else if (transition.kind === "evidence-mode") {
     cancelEvidenceProcessing();
     next = setDeidentificationConfirmed(replaceSources(setEvidenceMode(state, transition.nextId), []), false);
@@ -134,10 +135,7 @@ async function processEvidenceFiles() {
 }
 
 function requestStage(nextId) {
-  const allowed = new Set(getAdaptiveFieldIds(state.researchTypeId, nextId, state.studyDesignId));
-  const incompatible = getIncompatiblePopulatedFieldIds(state.fields, allowed);
-  if (incompatible.length) beginConfirmation("stage", nextId, incompatible);
-  else update(setStage(state, nextId), "set-stage");
+  update(setStage(state, nextId), "set-stage");
 }
 
 root.addEventListener("input", event => {
@@ -172,11 +170,15 @@ root.addEventListener("change", event => {
   }
   if (target.dataset.action === "evidence-mode") requestEvidenceMode(target.value);
   if (target.dataset.action === "output-language") update(setOutputLanguage(state, target.value), "set-output-language");
-  if (target.dataset.action === "study-design") update(setStudyDesign(state, target.value), "set-study-design");
+  if (target.dataset.action === "study-design") {
+    const transition = setStudyDesign(state, target.value);
+    if (transition.needsConfirmation) beginConfirmation("study-design", target.value, transition.analysis.fieldIds, transition.analysis);
+    else update(transition.state, "set-study-design");
+  }
   if (target.dataset.action === "deidentification") update(setDeidentificationConfirmed(state, target.checked), "set-deidentification");
   if (target.dataset.action === "research-type") {
     const transition = setResearchType(state, target.value);
-    if (transition.needsConfirmation) beginConfirmation("research-type", target.value, transition.incompatible);
+    if (transition.needsConfirmation) beginConfirmation("research-type", target.value, transition.analysis.fieldIds, transition.analysis);
     else update(transition.state, "set-research-type");
   }
 });

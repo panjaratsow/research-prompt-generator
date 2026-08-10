@@ -4,6 +4,7 @@ import {
   createPublicWorkspaceState,
   replaceSources,
   resetState,
+  TARGET_OUTPUT_STAGES,
   TARGET_OUTPUTS,
   setEvidenceBudget,
   setEvidenceMode,
@@ -13,10 +14,15 @@ import {
   setOutputLanguage,
   setPromptDrawer,
   setResearchType,
+  setAdvancedOpen,
+  setFieldCustomValue,
+  setResearchProfileOpen,
   setSetupField,
   setStage,
   setStudyDesign,
+  setTargetOutput,
 } from "../../src/state.js";
+import { STAGE_IDS } from "../../src/catalog/index.js";
 
 describe("state transitions", () => {
   it("offers the approved target outputs", () => {
@@ -32,27 +38,10 @@ describe("state transitions", () => {
     ]);
   });
 
-  it.each([
-    ["define-question", "research-question"],
-    ["literature-review", "literature-review-strategy"],
-    ["synthesize-information", "evidence-synthesis"],
-    ["identify-gaps", "research-gap-analysis"],
-    ["generate-hypotheses", "hypotheses-propositions"],
-    ["outline-methodology", "methodology-outline"],
-    ["write-proposal", "research-proposal"],
-  ])("accepts only the %s stage deliverable", (stageId, targetOutput) => {
-    const state = setStage(createInitialState(), stageId);
-    expect(setSetupField(state, "targetOutput", targetOutput).targetOutput).toBe(targetOutput);
-
-    const incompatible = targetOutput === "research-proposal" ? "research-question" : "research-proposal";
-    expect(() => setSetupField(state, "targetOutput", incompatible)).toThrow(RangeError);
-  });
-
-  it("normalizes an incompatible explicit deliverable when the stage changes", () => {
-    let state = setStage(createInitialState(), "write-proposal");
-    state = setSetupField(state, "targetOutput", "research-proposal");
-
-    expect(setStage(state, "literature-review").targetOutput).toBe("stage-appropriate-deliverable");
+  it("maps every explicit target output to its lifecycle stage", () => {
+    for (const [targetOutput, stageId] of Object.entries(TARGET_OUTPUT_STAGES)) {
+      expect(setTargetOutput(createInitialState(), targetOutput)).toMatchObject({ targetOutput, stageId });
+    }
   });
 
   it("uses approved defaults", () => {
@@ -71,6 +60,10 @@ describe("state transitions", () => {
       citationStyle: "Vancouver",
       evidenceBudget: 60000,
       deidentificationConfirmed: false,
+      fieldCustomValues: {},
+      drafts: expect.any(Object),
+      advancedOpenByStage: expect.any(Object),
+      researchProfileOpen: false,
       sources: [],
       promptDrawer: "closed",
     });
@@ -80,15 +73,26 @@ describe("state transitions", () => {
     expect(() => setStage(createInitialState(), "question")).toThrow(RangeError);
   });
 
-  it("requires confirmation before clearing incompatible fields", () => {
-    const withExposure = setField(createInitialState(), "exposure", "Diabetes");
-    const pending = setResearchType(withExposure, "qualitative-mixed", false);
+  it("requires confirmation before clearing incompatible fields and options", () => {
+    let state = setField(createInitialState(), "exposure", "Diabetes");
+    state = setField(state, "informationSources", ["registry-data", "other"]);
+    state = setFieldCustomValue(state, "informationSources", "ThaiJO");
+    state = setField(state, "sampleSizePlan", "Use 200 records");
+    state = setAdvancedOpen(state, "outline-methodology", true);
+    const pending = setResearchType(state, "qualitative-mixed", false);
     expect(pending.needsConfirmation).toBe(true);
-    expect(pending.state.fields.exposure).toBe("Diabetes");
+    expect(pending.analysis.fieldIds).toEqual(expect.arrayContaining(["exposure"]));
+    expect(pending.analysis.optionIdsByField).toMatchObject({ informationSources: ["registry-data"] });
+    expect(pending.incompatible).toBe(pending.analysis.fieldIds);
+    expect(pending.state.fieldCustomValues.informationSources).toBe("ThaiJO");
+    expect(pending.state.fields.sampleSizePlan).toBe("Use 200 records");
 
-    const confirmed = setResearchType(withExposure, "qualitative-mixed", true);
+    const confirmed = setResearchType(state, "qualitative-mixed", true, pending.analysis);
     expect(confirmed.needsConfirmation).toBe(false);
     expect(confirmed.state.fields.exposure).toBeUndefined();
+    expect(confirmed.state.fields.informationSources).toEqual(["other"]);
+    expect(confirmed.state.fieldCustomValues.informationSources).toBe("ThaiJO");
+    expect(confirmed.state.fields.sampleSizePlan).toBe("Use 200 records");
   });
 
   it("does not confirm a research-type transition for touched then cleared fields", () => {
@@ -96,7 +100,7 @@ describe("state transitions", () => {
     const transition = setResearchType(cleared, "qualitative-mixed", false);
 
     expect(transition.needsConfirmation).toBe(false);
-    expect(transition.incompatible).toEqual([]);
+    expect(transition.analysis.fieldIds).toEqual([]);
   });
 
   it("preserves compatible fields across research-type and stage transitions", () => {
@@ -126,7 +130,7 @@ describe("state transitions", () => {
       experienceLevel: "advanced",
       scientificField: "Neonatology",
       institutionSetting: "Thailand, university teaching hospital",
-      targetOutput: "research-proposal",
+      targetOutput: "stage-appropriate-deliverable",
       citationStyle: "AMA",
       studyDesignId: "education-observational",
     });
@@ -136,8 +140,8 @@ describe("state transitions", () => {
     const state = createInitialState();
     const externalValidation = setStudyDesign(
       setResearchType(state, "ai-health-data", true).state,
-      "ai-imaging-external-validation"
-    );
+      "ai-imaging-external-validation", true
+    ).state;
 
     expect(externalValidation.studyDesignId).toBe("ai-imaging-external-validation");
     expect(() => setStudyDesign(state, "scoping-review")).toThrow(RangeError);
@@ -210,7 +214,32 @@ describe("state transitions", () => {
     expect(state.fields).toEqual({ topic: "Original topic" });
   });
 
-  it("leaves stage input unchanged while filtering incompatible fields", () => {
+  it("carries canonical and completed stage products through all seven stages", () => {
+    let state = createInitialState();
+    state = setField(state, "topic", "Cardiac remodelling");
+    state = setField(state, "researchQuestion", "What is the association?");
+    state = setField(state, "searchStrategy", "Search MEDLINE and Embase");
+    for (const stageId of STAGE_IDS) state = setStage(state, stageId);
+    expect(state.fields).toMatchObject({
+      topic: "Cardiac remodelling",
+      researchQuestion: "What is the association?",
+      searchStrategy: "Search MEDLINE and Embase",
+    });
+  });
+
+  it("keeps disclosures independent from experience and field values", () => {
+    const initial = createInitialState();
+    const open = setAdvancedOpen(initial, "synthesize-information", true);
+    const closed = setAdvancedOpen(open, "synthesize-information", false);
+    const profile = setResearchProfileOpen(closed, true);
+    expect(initial.advancedOpenByStage["synthesize-information"]).toBe(false);
+    expect(closed.fields).toBe(open.fields);
+    expect(closed.drafts).toBe(open.drafts);
+    expect(profile.researchProfileOpen).toBe(true);
+    expect(profile.experienceLevel).toBe(closed.experienceLevel);
+  });
+
+  it("leaves stage input unchanged while carrying fields forward", () => {
     const state = {
       ...createInitialState(),
       fields: { population: "Thai adults", problemStatement: "Delayed diagnosis" },
@@ -218,9 +247,9 @@ describe("state transitions", () => {
     const next = setStage(state, "literature-review");
 
     expect(next).not.toBe(state);
-    expect(next.fields).not.toBe(state.fields);
+    expect(next.fields).toBe(state.fields);
     expect(next.stageId).toBe("literature-review");
-    expect(next.fields).toEqual({ population: "Thai adults" });
+    expect(next.fields).toEqual({ population: "Thai adults", problemStatement: "Delayed diagnosis" });
     expect(state.stageId).toBe("define-question");
     expect(state.fields).toEqual({
       population: "Thai adults",
