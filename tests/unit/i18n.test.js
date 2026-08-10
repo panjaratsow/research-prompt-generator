@@ -1,5 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { copy, t } from "../../src/i18n.js";
+import {
+  BASE_OPTION_SETS,
+  DESIGN_ANALYSIS_FAMILIES,
+  FIELD_DEFINITIONS,
+  RESEARCH_TYPES,
+  TYPE_OPTION_SETS,
+} from "../../src/catalog/index.js";
+
+function promptOptionIds() {
+  return [...new Set([
+    ...Object.values(BASE_OPTION_SETS).flat(),
+    ...Object.values(TYPE_OPTION_SETS).flatMap(optionSets => Object.values(optionSets).flat()),
+    ...Object.values(DESIGN_ANALYSIS_FAMILIES).flat(),
+    ...RESEARCH_TYPES.flatMap(type => type.designs.map(design => design.id)),
+    "uploaded-source-set",
+    "other",
+    "not-sure",
+  ])];
+}
 
 describe("localized copy", () => {
   it("deep-freezes nested copy values", () => {
@@ -39,6 +58,28 @@ describe("localized copy", () => {
       .toBe("กรุณาระบุรายละเอียดสำหรับตัวเลือกอื่น");
     expect(t("en", "validation.validationDraftError"))
       .toBe("The draft could not be refreshed; the previous text is preserved.");
+  });
+
+  it("provides Thai and English copy for every prompt-facing adaptive key", () => {
+    const fieldKeys = FIELD_DEFINITIONS
+      .filter(field => field.canonical)
+      .map(field => field.labelKey);
+    const optionKeys = promptOptionIds().map(optionId => `options.${optionId}`);
+
+    for (const locale of ["th", "en"]) {
+      for (const key of [...fieldKeys, ...optionKeys]) {
+        expect(t(locale, key), `${locale} ${key}`).not.toBe(key);
+      }
+    }
+  });
+
+  it("uses authored bilingual labels for a normal adaptive decision", () => {
+    expect(t("th", "fields.questionType")).toBe("ประเภทคำถามวิจัย");
+    expect(t("en", "fields.questionType")).toBe("Question type");
+    expect(t("th", "options.prognosis")).toBe("การพยากรณ์โรค");
+    expect(t("en", "options.prognosis")).toBe("Prognosis");
+    expect(t("th", "options.cohort")).toBe("โคฮอร์ต");
+    expect(t("en", "options.cohort")).toBe("Cohort");
   });
 
   it.each([

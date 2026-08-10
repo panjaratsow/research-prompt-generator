@@ -360,6 +360,50 @@ describe("prompt contract", () => {
     expect(context).toContain(expected);
   });
 
+  it.each([
+    [
+      "thai",
+      "หัวข้อวิจัย: anti-HBs and eGFR",
+      "ประเภทคำถามวิจัย: การพยากรณ์โรค",
+      "คำถามวิจัย: Does anti-HBs predict eGFR decline?",
+    ],
+    [
+      "english",
+      "Research topic: anti-HBs and eGFR",
+      "Question type: Prognosis",
+      "Research question: Does anti-HBs predict eGFR decline?",
+    ],
+    [
+      "bilingual",
+      "หัวข้อวิจัย / Research topic: anti-HBs and eGFR",
+      "ประเภทคำถามวิจัย / Question type: การพยากรณ์โรค / Prognosis",
+      "คำถามวิจัย / Research question: Does anti-HBs predict eGFR decline?",
+    ],
+  ])("localizes normal choices and preserves free text verbatim in %s output", (
+    outputLanguage,
+    expectedTopic,
+    expectedQuestionType,
+    expectedResearchQuestion,
+  ) => {
+    const questionContext = buildStructuredContext(validPlanningState({
+      outputLanguage,
+      fields: {
+        topic: "anti-HBs and eGFR",
+        questionType: "prognosis",
+      },
+    }));
+    const inheritedContext = buildStructuredContext(validPlanningState({
+      stageId: "literature-review",
+      outputLanguage,
+      fields: { researchQuestion: "Does anti-HBs predict eGFR decline?" },
+    }));
+
+    expect(questionContext).toContain(expectedTopic);
+    expect(questionContext).toContain(expectedQuestionType);
+    expect(inheritedContext).toContain(expectedResearchQuestion);
+    expect(`${questionContext}\n${inheritedContext}`).not.toMatch(/fields\.|options\./i);
+  });
+
   it("isolates Not sure decisions and requests bounded human decision support", () => {
     const state = validPlanningState({
       stageId: "synthesize-information",

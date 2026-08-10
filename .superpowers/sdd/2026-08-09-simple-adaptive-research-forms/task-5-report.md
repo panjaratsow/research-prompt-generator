@@ -87,3 +87,66 @@ Exact result: exit 0 with no output.
 - Confirmed unresolved instructions are emitted only for fields with `allowNotSure`, are deduplicated in catalogue order, and request exactly 2-3 options plus rationale, limitations, and information needed for a human decision.
 - Confirmed the repaired fixtures use valid typed decision IDs and arrays under the Task 4 validation contract while retaining every prior prompt safeguard assertion.
 - `git diff --check` reported no whitespace errors; Node syntax and all required tests pass.
+
+## Review Fix: Localized Labels and Verbatim Text
+
+### Status
+
+Resolved the Task 5 high finding. Prompt serialization now preserves short-text and derived-text state values verbatim, while every canonical adaptive field and every prompt-facing base, research-family, design-analysis, study-design, uploaded-source, Other, and Not sure option resolves through authored Thai and English copy.
+
+### Files
+
+- Modified `src/prompt-engine.js`.
+- Modified `src/i18n.js` under the approved essential scope expansion for Task 6 bilingual copy.
+- Modified `tests/unit/prompt-engine.test.js`.
+- Modified `tests/unit/i18n.test.js`.
+- Updated this report.
+
+### Design Choices
+
+- Kept free-text handling in the prompt engine: `short-text` and `derived-text` controls read their normalized state string directly, so medical punctuation and casing such as `anti-HBs and eGFR` are not treated as option IDs or localized twice.
+- Kept select and multi-select handling on `serializeDisplayValue()` so deterministic catalogue order, custom Other text, Not sure behavior, and localized option labels remain unchanged.
+- Added explicit Thai/English field and option copy in `src/i18n.js`; study-design option copy reuses the existing localized design catalogue, with a concise authored `Cohort`/`โคฮอร์ต` prompt label to preserve the existing draft-composer grammar.
+- Added an exhaustive i18n test generated from the catalogue rather than a hand-maintained subset. A newly added adaptive key now fails tests if either locale returns the raw key.
+- Did not change evidence boundaries, SOURCE escaping, provisional evidence-pattern handling, standards, governance, citations, limitations, or human-review instructions.
+
+### RED Evidence
+
+Command:
+
+```powershell
+& 'C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vitest\vitest.mjs' run tests/unit/prompt-engine.test.js tests/unit/i18n.test.js
+```
+
+Exact result before production edits: exit 1; `Test Files 2 failed (2)`; `Tests 5 failed | 56 passed (61)`. Failures showed `fields.questionType`, English-only `Prognosis`, and mutated/duplicated `Anti HBs and eGFR` output instead of authored localized labels and verbatim text.
+
+### GREEN Evidence
+
+Required focused prompt+i18n command:
+
+```powershell
+& 'C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vitest\vitest.mjs' run tests/unit/prompt-engine.test.js tests/unit/i18n.test.js
+```
+
+Exact result: exit 0; `Test Files 2 passed (2)`; `Tests 61 passed (61)`.
+
+The first full-suite run exposed one draft-composer grammar regression (`cohort study study methodology`), caused by reusing the setup control's full design name as an inline option. After adding the concise authored prompt label, the focused prompt+i18n+draft rail produced: `Test Files 3 passed (3)`; `Tests 76 passed (76)`.
+
+Full unit suite:
+
+```powershell
+& 'C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' 'node_modules\vitest\vitest.mjs' run
+```
+
+Exact result: exit 0; `Test Files 12 passed (12)`; `Tests 526 passed (526)`.
+
+### Commit
+
+`fix: preserve localized research prompt values` (this review-fix commit).
+
+### Self-Review
+
+- Confirmed the prompt-engine diff changes only display-value selection for text controls; section ordering and every safety/evidence/governance function are untouched.
+- Confirmed Thai, English, and bilingual prompt tests cover a normal dynamic select, hyphenated mixed-case short text, and inherited derived text without raw `fields.*` or `options.*` keys.
+- Confirmed exhaustive catalogue localization covers both locales, including study designs and sentinel options.
+- `git diff --check` reports no whitespace errors; focused and full unit verification are green.

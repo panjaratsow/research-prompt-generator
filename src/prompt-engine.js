@@ -163,7 +163,9 @@ function contextLines(state, fields) {
   return fields
     .filter(field => isFieldComplete(state, field) && !isUnresolvedDecision(state, field))
     .map(field => {
-      const displayValue = serializeDisplayValue(state, field, state.outputLanguage);
+      const displayValue = ["short-text", "derived-text"].includes(field.control)
+        ? getFieldValue(state, field.id)
+        : serializeDisplayValue(state, field, state.outputLanguage);
       const value = field.id === "evidencePattern"
         ? `User-supplied provisional assessment: ${displayValue}`
         : displayValue;
