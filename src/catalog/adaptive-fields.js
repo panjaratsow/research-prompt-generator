@@ -40,7 +40,7 @@ const STAGE_FIELD_IDS = new Set(Object.values(STAGE_FORM_FIELDS).flatMap(config 
 const SELECT_FIELDS = new Set([
   "questionType", "dateCoverage", "evidencePattern", "synthesisMethod", "evidenceCertainty",
   "gapType", "gapEvidenceSupport", "gapPriority", "hypothesisApproach", "expectedDirection",
-  "samplingApproach", "analysisFamily", "feasibilityPeriod", "proposalType", "targetAudience",
+  "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod", "proposalType", "targetAudience",
   "proposalTimeline", "confirmedDesign",
 ]);
 const MULTI_SELECT_FIELDS = new Set([

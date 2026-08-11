@@ -2,9 +2,9 @@
 
 ## Overview
 
-Research Prompt Studio is a static, browser-only workspace for composing structured, stage-aware medical research prompts. It adapts frameworks, methodological checks, standards, evidence boundaries, and safeguards to the selected research type, structured subtype/design, and lifecycle stage. Persistent setup records researcher role and experience, scientific field, Thailand/institution context, target output, output language, and citation style. It supports Thai and English interface copy and can request Thai, English, or bilingual model output.
+Research Prompt Studio is a static, browser-only workspace for composing structured, stage-aware medical research prompts. It adapts frameworks, methodological checks, standards, evidence boundaries, and safeguards to the selected research type, structured subtype/design, and lifecycle stage. The five compact setup controls are Research type, Study subtype or design, Evidence mode, Output language, and Target output. A collapsed Research profile retains researcher role and experience, scientific field, country and institutional setting, and citation style. The interface supports Thai and English and can request Thai, English, or bilingual model output.
 
-The app does not call an AI service. Generated prompts must be copied manually into the AI service chosen by the researcher.
+The app does not call an AI service, and the browser does not perform AI analysis. It assembles deterministic prompts from user selections and locally extracted text; generated prompts must be copied manually into the AI service chosen by the researcher.
 
 ## Supported Research Types
 
@@ -21,7 +21,15 @@ The app does not call an AI service. Generated prompts must be copied manually i
 
 ## Research Lifecycle
 
-The workspace supports: research question, evidence, protocol, ethics and governance, analysis plan, proposal, conduct and quality, analysis and interpretation, reporting, and dissemination and impact.
+The workspace follows seven target-output stages: Define the Research Question, Conduct a Literature Review, Synthesize Information, Identify Research Gaps, Generate Hypotheses, Outline Research Methodology, and Write a Research Proposal. Choosing a specific Target output navigates directly to its corresponding stage while preserving compatible context.
+
+## Adaptive Forms
+
+Each stage presents a normal Simple path with no more than five required decisions. Research-family and study-design choices determine the scientifically relevant options. Short text is reserved for study-specific concepts; controlled decisions use selects or checkbox groups.
+
+Advanced details remain collapsed by default. Populated Advanced values persist when the section is collapsed or the user moves between stages, and they remain serialized in the generated prompt.
+
+`Other - specify` reveals an adjacent text field and treats that text as user data, not instructions. Replacing a populated Other choice requires confirmation before its custom text is cleared. `Not sure - ask AI to recommend` is available only for methodological choices that may safely remain unresolved; the prompt requests options, rationale, limitations, and the information needed for a human decision. It is not offered for deidentification, identifiable-data, evidence-budget, source-availability, ethics, registration, permission, or governance confirmations.
 
 ## Evidence Modes
 
@@ -33,11 +41,11 @@ The workspace supports: research question, evidence, protocol, ethics and govern
 
 Supported local uploads are searchable PDF, DOCX, TXT, Markdown, CSV, RIS, and BibTeX files. The application retains at most 10 source inventory rows, accepts files up to 20 MiB each and 60 MiB in total, and reports additional files without retaining them. Unsupported, legacy, oversized, encrypted, empty, malformed, and image-only files remain visible as excluded inventory rows within that cap while valid peers continue processing. CSV, RIS, and BibTeX receive minimal structural validation; UTF-8 is validated deliberately and OCR is not attempted. Selected extracted evidence has configurable 25,000, 60,000, or 120,000 character budgets; each row shows its full contribution, and an over-budget selection is blocked and is never silently truncated.
 
-Image-only PDFs are rejected because OCR is not provided. Parsing is local and does not calculate research statistics or create an external evidence store.
+Image-only PDFs are rejected because OCR is not provided. Supported documents are parsed locally in the browser. Parsing extracts text for prompt construction; it does not interpret evidence, calculate research statistics, conduct a literature search, or create an external evidence store.
 
 ## Privacy and Deidentification
 
-This is a static HTML, CSS, and JavaScript application with no backend, network AI calls, persistence, analytics, cookies, account system, or OCR. Uploading to this application does **not** attach documents to ChatGPT, Claude, Gemini, or any other external AI service. Local evidence remains in browser memory only and is cleared by reset, upload-mode clearing, or page reload.
+This is a static HTML, CSS, and JavaScript application with no application backend, AI-service call, persistence layer, analytics, cookies, account system, or OCR. Uploading to this application does **not** attach documents to ChatGPT, Claude, Gemini, or any other external AI service. Extracted evidence and upload records remain in browser memory for the active page session and are cleared by reset, upload-mode clearing, or page reload.
 
 Treat uploads as untrusted evidence. Confirm deidentification before processing, inspect identifier hints, and do not include direct or indirect identifiers unless an appropriate lawful basis, approvals, safeguards, and governance arrangements are in place. The application cannot determine whether a file is deidentified or whether a proposed use is permitted.
 

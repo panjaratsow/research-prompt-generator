@@ -333,11 +333,11 @@ function handleDelegatedInteraction(event) {
   const trigger = target.closest("[data-action]");
   const action = trigger?.dataset.action;
   if (action === "toggle-advanced") {
-    update(setAdvancedOpen(state, state.stageId, trigger.getAttribute("aria-expanded") !== "true"), "toggle-advanced", true, captureFocus());
+    update(setAdvancedOpen(state, state.stageId, trigger.getAttribute("aria-expanded") !== "true"), "toggle-advanced", true, { id: trigger.id, start: null, end: null });
     return;
   }
   if (action === "toggle-profile") {
-    update(setResearchProfileOpen(state, !state.researchProfileOpen), "toggle-profile", true, captureFocus());
+    update(setResearchProfileOpen(state, !state.researchProfileOpen), "toggle-profile", true, { id: trigger.id, start: null, end: null });
     return;
   }
   if (action === "restore-draft") {
