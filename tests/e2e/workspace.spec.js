@@ -103,36 +103,134 @@ async function populateSynthesisContext(page) {
 
 async function responsiveGeometry(page) {
   return page.evaluate(() => {
-    const visibleChildren = selector => [...document.querySelectorAll(selector)]
-      .filter(container => !container.closest("[hidden]"))
-      .flatMap(container => [...container.children].filter(child => {
-        const rect = child.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      }).map(child => ({
-        container: selector,
-        label: child.id || child.getAttribute("data-field-id") || child.className,
-        rect: child.getBoundingClientRect(),
-      })));
+    const tolerance = 1;
+    const viewport = { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+    const label = element => element.id ? `#${element.id}`
+      : element.classList.length ? `.${[...element.classList].join(".")}`
+        : element.tagName.toLowerCase();
+    const isVisible = element => {
+      if (element.closest("[hidden]")) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+    };
+    const visible = selector => [...document.querySelectorAll(selector)].filter(isVisible);
+    const intersects = (a, b) => a.left < b.right - tolerance && a.right > b.left + tolerance
+      && a.top < b.bottom - tolerance && a.bottom > b.top + tolerance;
     const overlaps = [];
-    for (const selector of [
-      "#setupBar > .setup-controls",
-      ".profile-controls",
-      ".simple-fields",
-      ".advanced-fields",
-      ".checkbox-chips",
-      ".segmented-control",
-      ".context-list",
-    ]) {
-      const items = visibleChildren(selector);
+    const outOfBounds = [];
+    const overflows = [];
+    const addPeerOverlaps = (name, items) => {
       for (let left = 0; left < items.length; left += 1) {
         for (let right = left + 1; right < items.length; right += 1) {
-          const a = items[left].rect;
-          const b = items[right].rect;
-          if (a.left < b.right - 0.5 && a.right > b.left + 0.5
-            && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5) {
-            overlaps.push(`${selector}: ${items[left].label} intersects ${items[right].label}`);
+          if (intersects(items[left].getBoundingClientRect(), items[right].getBoundingClientRect())) {
+            overlaps.push(`${name}: ${label(items[left])} intersects ${label(items[right])}`);
           }
         }
+      }
+    };
+    const addCrossOverlaps = (name, leftItems, rightItems) => {
+      for (const left of leftItems) {
+        for (const right of rightItems) {
+          if (intersects(left.getBoundingClientRect(), right.getBoundingClientRect())) {
+            overlaps.push(`${name}: ${label(left)} intersects ${label(right)}`);
+          }
+        }
+      }
+    };
+    const addBounds = (name, element, container, includeVertical = true) => {
+      const rect = element.getBoundingClientRect();
+      const boundary = container.getBoundingClientRect();
+      const outsideHorizontal = rect.left < boundary.left - tolerance || rect.right > boundary.right + tolerance;
+      const outsideVertical = includeVertical && (rect.top < boundary.top - tolerance || rect.bottom > boundary.bottom + tolerance);
+      if (outsideHorizontal || outsideVertical) outOfBounds.push(`${name}: ${label(element)} escapes ${label(container)}`);
+    };
+    const addViewportBounds = (name, element, includeVertical = false) => {
+      const rect = element.getBoundingClientRect();
+      const outsideHorizontal = rect.left < viewport.left - tolerance || rect.right > viewport.right + tolerance;
+      const outsideVertical = includeVertical && (rect.top < viewport.top - tolerance || rect.bottom > viewport.bottom + tolerance);
+      if (outsideHorizontal || outsideVertical) outOfBounds.push(`${name}: ${label(element)} escapes viewport`);
+    };
+    const addOverflow = (name, element) => {
+      if (element.scrollWidth > element.clientWidth + tolerance) {
+        overflows.push(`${name}: ${label(element)} scrollWidth ${element.scrollWidth} exceeds clientWidth ${element.clientWidth}`);
+      }
+    };
+
+    const header = document.querySelector(".app-header");
+    const brand = document.querySelector(".brand-lockup");
+    const actions = document.querySelector(".header-actions");
+    const headerItems = [brand, actions].filter(isVisible);
+    addPeerOverlaps("header", headerItems);
+    const brandItems = visible(".brand-emblem, .brand-lockup h1, .brand-subtitle");
+    const actionItems = visible(".header-actions > .privacy-status, .header-actions > .language-control, .header-actions > #resetButton");
+    addCrossOverlaps("header", brandItems, actionItems);
+    addPeerOverlaps("header actions", actionItems);
+    for (const item of [...headerItems, ...brandItems, ...actionItems]) {
+      addBounds("header", item, header);
+      addViewportBounds("header", item);
+    }
+
+    const peerGroups = [
+      ["setup controls", "#setupBar > .setup-controls > .control-label"],
+      ["profile controls", ".profile-controls > .control-label"],
+      ["simple fields", ".simple-fields > .field-control"],
+      ["advanced fields", ".advanced-fields > .field-control"],
+      ["choice chips", ".checkbox-chips > .checkbox-chip"],
+      ["segmented choices", ".segmented-control > .segmented-option"],
+      ["context items", ".context-list > .context-item"],
+      ["validation sections", ".validation-summary > section"],
+      ["workspace regions", "#lifecycleRail, #workspaceMain, #standardsSummary"],
+    ];
+    for (const [name, selector] of peerGroups) addPeerOverlaps(name, visible(selector));
+
+    const containerSelectors = [
+      ["setup bar", "#setupBar"], ["setup controls", "#setupBar > .setup-controls"],
+      ["research profile", ".research-profile"], ["profile controls", ".profile-controls"],
+      ["workspace main", "#workspaceMain"], ["adaptive form", ".adaptive-form"],
+      ["simple fields", ".simple-fields"], ["derived draft", ".draft-field"],
+      ["advanced disclosure", ".advanced-disclosure"], ["advanced fields", ".advanced-fields"],
+      ["context strip", ".context-strip"], ["context list", ".context-list"],
+      ["validation", ".validation-summary"], ["standards panel", "#standardsSummary"],
+      ["choice chips", ".checkbox-chips"], ["segmented choices", ".segmented-control"],
+    ];
+    for (const [name, selector] of containerSelectors) {
+      for (const container of visible(selector)) {
+        addViewportBounds(name, container);
+        addOverflow(name, container);
+      }
+    }
+
+    for (const [name, selector, containerSelector] of [
+      ["setup controls", "#setupBar > .setup-controls > .control-label", "#setupBar > .setup-controls"],
+      ["profile controls", ".profile-controls > .control-label", ".profile-controls"],
+      ["simple fields", ".simple-fields > .field-control", ".simple-fields"],
+      ["advanced fields", ".advanced-fields > .field-control", ".advanced-fields"],
+      ["choice chips", ".checkbox-chips > .checkbox-chip", ".checkbox-chips"],
+      ["segmented choices", ".segmented-control > .segmented-option", ".segmented-control"],
+      ["context items", ".context-list > .context-item", ".context-list"],
+      ["validation", ".validation-summary > section", ".validation-summary"],
+    ]) {
+      for (const item of visible(selector)) {
+        const container = item.closest(containerSelector);
+        if (container) addBounds(name, item, container);
+        addViewportBounds(name, item);
+      }
+    }
+
+    const nestedControls = visible("#setupBar input, #setupBar select, #workspaceMain input, #workspaceMain select, #workspaceMain textarea, #workspaceMain button");
+    for (const control of nestedControls) {
+      const owner = control.closest(".checkbox-chip, .segmented-option, .field-control, .context-item, .advanced-disclosure, .research-profile, #setupBar, #lifecycleRail, .validation-summary");
+      if (owner && owner !== control) addBounds("nested control", control, owner);
+      addViewportBounds("nested control", control);
+    }
+
+    const lifecycleRail = document.querySelector("#lifecycleRail");
+    for (const button of visible("#lifecycleRail > .stage-button")) {
+      const rect = button.getBoundingClientRect();
+      if (rect.left >= lifecycleRail.getBoundingClientRect().left - tolerance && rect.right <= lifecycleRail.getBoundingClientRect().right + tolerance) {
+        addBounds("lifecycle button", button, lifecycleRail);
+        addViewportBounds("lifecycle button", button);
       }
     }
     const columns = selector => {
@@ -144,13 +242,15 @@ async function responsiveGeometry(page) {
     const adaptiveWidth = width(".adaptive-form");
     const institutionSetting = document.querySelector("#profile-institutionSetting");
     return {
-      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth + tolerance,
       overlaps,
+      outOfBounds,
+      overflows,
       simpleColumns: columns(".simple-fields"),
       advancedColumns: columns(".advanced-fields"),
       regionWidthDeltas: [".simple-fields", ".draft-field", ".advanced-disclosure"]
         .map(selector => Math.abs(adaptiveWidth - width(selector))),
-      institutionValueFits: institutionSetting.scrollWidth <= institutionSetting.clientWidth,
+      institutionValueFits: institutionSetting.scrollWidth <= institutionSetting.clientWidth + tolerance,
     };
   });
 }
@@ -351,6 +451,8 @@ for (const viewport of [
     expect(advancedOpen.width).toBeCloseTo(advancedClosed.width, 0);
     expect(geometry.noHorizontalOverflow).toBe(true);
     expect(geometry.overlaps).toEqual([]);
+    expect(geometry.outOfBounds).toEqual([]);
+    expect(geometry.overflows).toEqual([]);
     expect(geometry.simpleColumns).toBe(viewport.columns);
     expect(geometry.advancedColumns).toBe(viewport.columns);
     expect(geometry.simpleColumns).toBeLessThanOrEqual(2);
@@ -359,6 +461,22 @@ for (const viewport of [
     expect(geometry.institutionValueFits).toBe(true);
   });
 }
+
+test("responsive geometry detects an injected header overlap", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Research profile" }).click();
+  await page.evaluate(() => {
+    const actions = document.querySelector(".header-actions");
+    actions.style.position = "relative";
+    actions.style.transform = "translateX(-360px)";
+  });
+
+  const geometry = await responsiveGeometry(page);
+
+  expect(geometry.overlaps).toContain("header: .brand-lockup intersects .header-actions");
+});
 
 test("responsive adaptive choices expose checked and focus-visible container states", async ({ page }) => {
   await page.setViewportSize({ width: 412, height: 915 });

@@ -75,3 +75,13 @@ Visual inspection at original resolution:
 - Screenshot baselines are Chromium/Windows-specific and may need deliberate regeneration after font or browser-rendering updates.
 - The active catalogue still has no segmented-radio field, so browser interaction coverage demonstrates native checkbox chips; the shared segmented-radio CSS follows the same checked/focus rules but remains dormant, consistent with the Task 7 re-review.
 - Axe is automated coverage, not a substitute for assistive-technology testing. Keyboard and visual checks cover the requested interaction states.
+
+## Review Finding Fix (2026-08-11)
+
+`responsiveGeometry()` now audits visible-only geometry at `1440x900`, `1024x768`, and `412x915` instead of only comparing a few direct form children. It verifies header brand/emblem/product text against the action group, language selector, and reset control; setup and expanded profile controls; workspace, lifecycle, and standards boundaries; Simple and Advanced field peers; choice controls; derived draft; disclosure; inherited-context items; validation sections; and nested interactive descendants. The audit rejects peer intersections, horizontal viewport/container escapes, and per-container horizontal overflow with a one-pixel rounding tolerance. Parent/child containment and a label wrapping its input are not treated as peer overlap. Hidden elements are excluded. The mobile lifecycle rail remains intentionally horizontally scrollable; its fully visible stage buttons are checked for bounds, while the non-scrolling required regions use `scrollWidth <= clientWidth + 1`.
+
+### RED/GREEN Evidence
+
+- RED: added an isolated `1024x768` fixture that shifts `.header-actions` over `.brand-lockup`. With the pre-fix helper, the test failed as intended: expected `header: .brand-lockup intersects .header-actions`, received `[]`. The initial stylesheet-injection fixture was blocked by the page CSP, so the final fixture uses a direct DOM position mutation and does not weaken production policy.
+- GREEN: the same fixture passes with the expanded helper because the header peer collision is reported. The unmodified UI then passed the focused matrix with the new empty `overlaps`, `outOfBounds`, and `overflows` assertions: `6 passed` across desktop/mobile Chromium and all three target viewports. Existing column limits, full-width-region, institution-value, and stable-disclosure assertions remain in place.
+- No real CSS issue was exposed, so `styles.css` and screenshot baselines were intentionally left unchanged.
