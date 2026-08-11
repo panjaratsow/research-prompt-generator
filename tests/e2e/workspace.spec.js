@@ -75,6 +75,86 @@ async function openPromptDrawer(page) {
   await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
 }
 
+async function tabUntil(page, expected, maxTabs = 60) {
+  for (let index = 0; index < maxTabs; index += 1) {
+    await page.keyboard.press("Tab");
+    const matches = await page.evaluate(criteria => {
+      const active = document.activeElement;
+      return active instanceof HTMLElement && Object.entries(criteria).every(([key, value]) => {
+        if (key === "id") return active.id === value;
+        if (key === "value") return "value" in active && active.value === value;
+        return active.dataset[key] === value;
+      });
+    }, expected);
+    if (matches) return;
+  }
+  throw new Error(`Keyboard focus did not reach ${JSON.stringify(expected)}`);
+}
+
+async function populateSynthesisContext(page) {
+  await page.getByLabel("Research topic").fill("Postpartum haemorrhage after caesarean birth");
+  await page.getByLabel("Population and setting").fill("Women giving birth in Thai tertiary referral hospitals");
+  await page.getByLabel("Primary outcome").fill("Severe postpartum haemorrhage within 24 hours");
+  await page.locator('[data-draft-id="researchQuestion"]').fill(
+    "Which modifiable factors predict severe postpartum haemorrhage after caesarean birth?"
+  );
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+}
+
+async function responsiveGeometry(page) {
+  return page.evaluate(() => {
+    const visibleChildren = selector => [...document.querySelectorAll(selector)]
+      .filter(container => !container.closest("[hidden]"))
+      .flatMap(container => [...container.children].filter(child => {
+        const rect = child.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      }).map(child => ({
+        container: selector,
+        label: child.id || child.getAttribute("data-field-id") || child.className,
+        rect: child.getBoundingClientRect(),
+      })));
+    const overlaps = [];
+    for (const selector of [
+      "#setupBar > .setup-controls",
+      ".profile-controls",
+      ".simple-fields",
+      ".advanced-fields",
+      ".checkbox-chips",
+      ".segmented-control",
+      ".context-list",
+    ]) {
+      const items = visibleChildren(selector);
+      for (let left = 0; left < items.length; left += 1) {
+        for (let right = left + 1; right < items.length; right += 1) {
+          const a = items[left].rect;
+          const b = items[right].rect;
+          if (a.left < b.right - 0.5 && a.right > b.left + 0.5
+            && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5) {
+            overlaps.push(`${selector}: ${items[left].label} intersects ${items[right].label}`);
+          }
+        }
+      }
+    }
+    const columns = selector => {
+      const element = document.querySelector(selector);
+      const template = getComputedStyle(element).gridTemplateColumns;
+      return template === "none" ? 0 : template.split(" ").filter(Boolean).length;
+    };
+    const width = selector => document.querySelector(selector).getBoundingClientRect().width;
+    const adaptiveWidth = width(".adaptive-form");
+    const institutionSetting = document.querySelector("#profile-institutionSetting");
+    return {
+      noHorizontalOverflow: document.documentElement.scrollWidth <= window.innerWidth,
+      overlaps,
+      simpleColumns: columns(".simple-fields"),
+      advancedColumns: columns(".advanced-fields"),
+      regionWidthDeltas: [".simple-fields", ".draft-field", ".advanced-disclosure"]
+        .map(selector => Math.abs(adaptiveWidth - width(selector))),
+      institutionValueFits: institutionSetting.scrollWidth <= institutionSetting.clientWidth,
+    };
+  });
+}
+
 test("renders the approved hybrid workspace", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
@@ -239,6 +319,151 @@ test("checkbox chips expose checked state and customized drafts offer Restore su
   await page.locator('[data-action="stage"][data-stage-id="define-question"]').click();
   await page.locator('[data-draft-id="researchQuestion"]').fill("A user-customized research question.");
   await expect(page.getByRole("button", { name: "Restore suggested text" })).toBeVisible();
+});
+
+for (const viewport of [
+  { name: "wide desktop", width: 1440, height: 900, columns: 2 },
+  { name: "compact desktop", width: 1024, height: 768, columns: 2 },
+  { name: "mobile", width: 412, height: 915, columns: 1 },
+]) {
+  test(`responsive adaptive form remains stable at ${viewport.name}`, async ({ page }) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.goto("/");
+    await page.getByTestId("interface-language").selectOption("en");
+
+    const profile = page.getByRole("button", { name: "Research profile" });
+    const profileClosed = await profile.boundingBox();
+    await profile.click();
+    const profileOpen = await profile.boundingBox();
+
+    await populateSynthesisContext(page);
+    const advanced = page.getByRole("button", { name: "Advanced details" });
+    const advancedClosed = await advanced.boundingBox();
+    await advanced.click();
+    const advancedOpen = await advanced.boundingBox();
+    const geometry = await responsiveGeometry(page);
+
+    expect(profileClosed.height).toBeGreaterThanOrEqual(40);
+    expect(profileOpen.height).toBeCloseTo(profileClosed.height, 0);
+    expect(profileOpen.width).toBeCloseTo(profileClosed.width, 0);
+    expect(advancedClosed.height).toBeGreaterThanOrEqual(40);
+    expect(advancedOpen.height).toBeCloseTo(advancedClosed.height, 0);
+    expect(advancedOpen.width).toBeCloseTo(advancedClosed.width, 0);
+    expect(geometry.noHorizontalOverflow).toBe(true);
+    expect(geometry.overlaps).toEqual([]);
+    expect(geometry.simpleColumns).toBe(viewport.columns);
+    expect(geometry.advancedColumns).toBe(viewport.columns);
+    expect(geometry.simpleColumns).toBeLessThanOrEqual(2);
+    expect(geometry.advancedColumns).toBeLessThanOrEqual(2);
+    expect(geometry.regionWidthDeltas.every(delta => delta <= 1)).toBe(true);
+    expect(geometry.institutionValueFits).toBe(true);
+  });
+}
+
+test("responsive adaptive choices expose checked and focus-visible container states", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+
+  const medline = page.getByRole("checkbox", { name: "MEDLINE/PubMed" });
+  const chip = medline.locator("..");
+  await tabUntil(page, { fieldId: "informationSources", value: "medline" });
+  const focused = await chip.evaluate(element => {
+    const style = getComputedStyle(element);
+    return {
+      display: style.display,
+      height: element.getBoundingClientRect().height,
+      outlineStyle: style.outlineStyle,
+      outlineWidth: Number.parseFloat(style.outlineWidth),
+    };
+  });
+  const unchecked = await chip.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, border: style.borderColor };
+  });
+  await page.keyboard.press("Space");
+  const checked = await chip.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { background: style.backgroundColor, border: style.borderColor };
+  });
+
+  expect(["flex", "inline-flex"]).toContain(focused.display);
+  expect(focused.height).toBeGreaterThanOrEqual(38);
+  expect(focused.outlineStyle).not.toBe("none");
+  expect(focused.outlineWidth).toBeGreaterThanOrEqual(3);
+  expect(checked.background).not.toBe(unchecked.background);
+  expect(checked.border).not.toBe(unchecked.border);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("responsive adaptive synthesis screenshots", async ({ page }, testInfo) => {
+  test.skip(!["desktop-chromium", "mobile-chromium"].includes(testInfo.project.name));
+  const mobile = testInfo.project.name === "mobile-chromium";
+  await page.setViewportSize(mobile ? { width: 412, height: 915 } : { width: 1440, height: 900 });
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Research profile" }).click();
+  await populateSynthesisContext(page);
+  await page.getByRole("button", { name: "Advanced details" }).click();
+  const limitation = page.locator('input[type="checkbox"][data-field-id="mainLimitations"]:enabled').first();
+  await limitation.check();
+  if (mobile) {
+    await page.getByTestId("interface-language").selectOption("th");
+    await page.locator("#field-evidenceCertainty").focus();
+    await page.keyboard.press("Tab");
+  } else {
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Tab");
+  }
+  await expect(limitation).toBeFocused();
+
+  await expect(page).toHaveScreenshot(
+    mobile ? "adaptive-synthesis-mobile.png" : "adaptive-synthesis-desktop.png",
+    { fullPage: true }
+  );
+});
+
+test("keyboard-only path reaches Simple, Other, Advanced, prompt drawer, and Escape close", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  await tabUntil(page, { id: "researchType" });
+  await tabUntil(page, { id: "studyDesign" });
+  await tabUntil(page, { id: "evidenceMode" });
+  await tabUntil(page, { id: "outputLanguage" });
+  await tabUntil(page, { id: "setup-targetOutput" });
+  await tabUntil(page, { action: "stage", stageId: "literature-review" });
+  await page.keyboard.press("Enter");
+  await expect(page.locator('[data-action="stage"][data-stage-id="literature-review"]')).toHaveAttribute("aria-current", "step");
+
+  await tabUntil(page, { fieldId: "informationSources", value: "other" });
+  await page.keyboard.press("Space");
+  await expect(page.locator('[data-other-for="informationSources"]')).toBeFocused();
+  await page.keyboard.insertText("ThaiJO");
+
+  await tabUntil(page, { id: "field-dateCoverage" });
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator("#field-dateCoverage")).not.toHaveValue("");
+  await tabUntil(page, { fieldId: "evidenceTypes" });
+  await page.keyboard.press("Space");
+  await tabUntil(page, { id: "field-searchConcepts" });
+  await page.keyboard.insertText("postpartum haemorrhage risk factors");
+  await tabUntil(page, { id: "field-searchStrategy" });
+  await page.keyboard.press("Control+A");
+  await page.keyboard.insertText("Search the selected sources using the supplied concepts.");
+
+  await tabUntil(page, { id: "toggle-advanced" });
+  await page.keyboard.press("Enter");
+  await expect(page.getByTestId("advanced-fields")).toBeVisible();
+  await tabUntil(page, { fieldId: "booleanQuery" });
+  await page.keyboard.insertText('"postpartum haemorrhage" AND risk');
+  await tabUntil(page, { action: "generate-prompt" });
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Generate prompt" })).toBeFocused();
 });
 
 test("target-output selector enables every deliverable and maps it directly to its stage", async ({ page }) => {
