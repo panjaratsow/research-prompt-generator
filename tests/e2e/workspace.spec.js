@@ -281,7 +281,7 @@ test("Target output navigation preserves carry-forward context", async ({ page }
   await expect(page.getByTestId("inherited-context")).toContainText("Cardiac remodelling");
 });
 
-test("keyboard adaptive controls preserve native checkbox and segmented-radio behavior", async ({ page }) => {
+test("keyboard adaptive controls preserve native checkbox behavior", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
 
@@ -291,24 +291,38 @@ test("keyboard adaptive controls preserve native checkbox and segmented-radio be
   await page.keyboard.press("Space");
   await expect(medline).toBeChecked();
   await expect(medline).toBeFocused();
+});
 
-  await page.locator('[data-action="stage"][data-stage-id="generate-hypotheses"]').click();
-  const directional = page.getByRole("radio", { name: "Directional", exact: true });
-  await directional.focus();
-  await page.keyboard.press("ArrowRight");
-  const nonDirectional = page.getByRole("radio", { name: "Non-directional", exact: true });
-  await expect(nonDirectional).toBeChecked();
-  await expect(nonDirectional).toBeFocused();
-
+test("disclosure toggles retain focus after click and keyboard open and close", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
   const advanced = page.getByRole("button", { name: "Advanced details" });
-  await advanced.focus();
+  await advanced.click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "true");
+  await expect(advanced).toBeFocused();
+  await advanced.click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await expect(advanced).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(advanced).toHaveAttribute("aria-expanded", "true");
+  await expect(advanced).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await expect(advanced).toBeFocused();
 
   const profile = page.getByRole("button", { name: "Research profile" });
-  await profile.focus();
+  await profile.click();
+  await expect(profile).toHaveAttribute("aria-expanded", "true");
+  await expect(profile).toBeFocused();
+  await profile.click();
+  await expect(profile).toHaveAttribute("aria-expanded", "false");
+  await expect(profile).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(profile).toHaveAttribute("aria-expanded", "true");
+  await expect(profile).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(profile).toHaveAttribute("aria-expanded", "false");
+  await expect(profile).toBeFocused();
 });
 
 test("Edit context returns to the canonical source control with focus", async ({ page }) => {
@@ -342,6 +356,53 @@ test("Other confirmation restores the old choice on Escape and clears only custo
   await page.getByRole("button", { name: "Confirm" }).click();
   await expect(questionType).toHaveValue("prognosis");
   await expect(page.getByLabel("Other - specify")).toHaveCount(0);
+});
+
+test("checkbox Other cancellation restores its trigger and confirmation preserves unrelated custom text", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  const questionType = page.getByLabel("Question type");
+  await questionType.selectOption("other");
+  await page.getByLabel("Other - specify").fill("Mechanistic question");
+
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  const medline = page.getByRole("checkbox", { name: "MEDLINE/PubMed" });
+  const otherSource = page.locator('input[type="checkbox"][data-field-id="informationSources"][value="other"]');
+  await medline.check();
+  await otherSource.check();
+  await page.locator('[data-other-for="informationSources"]').fill("Cochrane Library");
+
+  await otherSource.uncheck();
+  await expect(page.getByRole("dialog")).toContainText("Information sources");
+  await page.keyboard.press("Escape");
+  await expect(otherSource).toBeChecked();
+  await expect(otherSource).toBeFocused();
+  await expect(page.locator('[data-other-for="informationSources"]')).toHaveValue("Cochrane Library");
+
+  await otherSource.uncheck();
+  await page.getByRole("button", { name: "Confirm" }).click();
+  await expect(otherSource).not.toBeChecked();
+  await expect(medline).toBeChecked();
+  await expect(page.locator('[data-other-for="informationSources"]')).toHaveCount(0);
+
+  await page.locator('[data-action="stage"][data-stage-id="define-question"]').click();
+  await expect(questionType).toHaveValue("other");
+  await expect(page.getByLabel("Other - specify")).toHaveValue("Mechanistic question");
+});
+
+test("a profile text edit publishes once when it blurs", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Research profile" }).click();
+  await page.evaluate(() => {
+    window.profileTextActions = [];
+    window.addEventListener("workspace:statechange", event => window.profileTextActions.push(event.detail.action));
+  });
+
+  await page.getByLabel("Scientific field").fill("Maternal-fetal medicine");
+  await page.getByLabel("Researcher role").focus();
+
+  await expect.poll(() => page.evaluate(() => window.profileTextActions)).toEqual(["set-setup-field"]);
 });
 
 test("hidden Advanced incompatibility confirmation localizes field labels", async ({ page }) => {

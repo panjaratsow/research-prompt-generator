@@ -61,7 +61,7 @@ function renderOtherInput(field, state, locale) {
   const value = getFieldValue(state, field.id);
   const selected = (Array.isArray(value) ? value : [value]).includes(OTHER_OPTION_ID);
   if (!selected) return null;
-  const id = `field-${field.id}-other`;
+  const id = `field-${field.id}-other-text`;
   return element("label", { className: "other-control", htmlFor: id }, [
     element("span", { textContent: t(locale, "otherSpecify") }),
     element("input", {
@@ -302,6 +302,7 @@ export function renderResearchProfile(state, locale) {
   ] : [];
   return element("section", { className: "research-profile" }, [
     element("button", {
+      id: "toggle-research-profile",
       type: "button",
       className: "secondary-button disclosure-button",
       textContent: t(locale, "researchProfile"),
@@ -322,6 +323,7 @@ function renderAdvancedDisclosure(fields, state, preflight, locale) {
   const open = Boolean(state.advancedOpenByStage?.[state.stageId]);
   return element("section", { className: "advanced-disclosure" }, [
     element("button", {
+      id: "toggle-advanced",
       type: "button",
       className: "secondary-button disclosure-button",
       textContent: t(locale, "advancedDetails"),

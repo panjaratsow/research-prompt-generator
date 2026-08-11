@@ -89,6 +89,10 @@ describe("adaptive field catalogue", () => {
     for (const fieldId of legacyIds) expect(getFieldDefinition(fieldId)).toBeDefined();
   });
 
+  it("keeps hypothesis approach as the approved single-select field", () => {
+    expect(getFieldDefinition("hypothesisApproach").control).toBe("single-select");
+  });
+
   it("uses study-design overlays and exposes uploaded sources only in uploaded evidence mode", () => {
     expect(resolveFieldOptions("analysisFamily", context("observational", "cohort", "planning")))
       .not.toEqual(resolveFieldOptions("analysisFamily", context("observational", "case-control", "planning")));

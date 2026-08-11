@@ -61,3 +61,41 @@ Before production changes: exit 1; `4 failed`, `8 passed` (12 total). The failur
 
 - The hidden-field browser test needs a test-only setter because legacy compatibility fields are deliberately excluded from compact form rendering. The state transition logic itself remains covered by existing unit tests.
 - Git reports normal CRLF conversion warnings for modified files in this worktree; `git diff --check` found no whitespace errors.
+
+## Review Fix Evidence (2026-08-10)
+
+### Changes
+
+- Added stable `toggle-advanced` and `toggle-research-profile` IDs so disclosure rerenders restore focus after both mouse and keyboard activation.
+- Pending populated-Other confirmations now store the actual triggering control ID. The Other text input now has a distinct `-other-text` ID, leaving option-specific checkbox/radio IDs unambiguous for focus restoration.
+- Profile text values publish on `input` only; the delegated `change` route now handles setup selects only.
+- Restored `hypothesisApproach` to the approved `single-select` catalogue control and removed the product-changing segmented-radio browser assertion.
+
+### RED Evidence
+
+- Focused desktop Playwright initially failed on disclosure focus after rerender, checkbox Other cancellation focus, and duplicate profile text state-change publication on blur. After the checkbox selector was scoped to the real `informationSources` control, the cancellation regression failed specifically because that selected Other checkbox was inactive after Escape.
+- `tests/unit/adaptive-fields.test.js` initially failed the new catalogue regression: expected `single-select`, received `segmented`.
+
+### GREEN Evidence
+
+```powershell
+& 'C:\Users\panja\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe' node_modules\@playwright\test\cli.js test tests/e2e/workspace.spec.js --project=desktop-chromium --workers=1 --grep='keyboard adaptive|disclosure toggles|Other confirmation|checkbox Other|profile text'
+```
+
+Final result: exit 0; `5 passed (6.4s)`. This covers click and keyboard disclosure open/close focus, native checkbox behavior, select and multi-select Other cancellation/confirmation, and one profile text publication after blur.
+
+- Full desktop workspace E2E: exit 0; `44 passed (40.0s)`.
+- Full unit suite: exit 0; `Test Files 12 passed (12)`; `Tests 528 passed (528)`.
+- Node syntax checks for `app.js`, `src/ui/adaptive-form.js`, and `src/catalog/adaptive-fields.js`: exit 0 with no output.
+- `git diff --check`: exit 0 with no whitespace errors.
+
+### Residual Coverage
+
+- The segmented-radio renderer remains available but no active catalogue field uses it after restoring approved product semantics. Its radio Arrow-key browser coverage is therefore intentionally dormant. The generic trigger-ID restoration route is exercised with the active option-specific `informationSources` checkbox Other control.
+
+### Takeover Validation (2026-08-11)
+
+- Re-ran the focused desktop Playwright command above with the bundled Node runtime: exit 0; `5 passed (8.6s)`.
+- Re-ran the full unit suite with the bundled Node runtime: exit 0; `Test Files 12 passed (12)`; `Tests 528 passed (528)`.
+- Re-ran Node syntax checks for `app.js`, `src/ui/adaptive-form.js`, and `src/catalog/adaptive-fields.js`, plus `git diff --check`: exit 0. The only output was expected CRLF conversion warnings.
+- Removed the untracked generated diagnostic artifact `debug.log`; no user files were removed.

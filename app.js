@@ -240,7 +240,7 @@ function updateStructuredField(target) {
       fieldId: field.id,
       replacementValue: next.fields[field.id],
       nextContext: { fieldId: field.id, value: next.fields[field.id] },
-      restoreSelector: `#field-${field.id}`,
+      restoreSelector: target.id ? `#${target.id}` : `[data-field-id="${field.id}"]`,
       analysis: { fieldIds: [field.id], optionIdsByField: {} },
     });
     return;
@@ -283,7 +283,7 @@ function handleDelegatedInteraction(event) {
     } else publish("commit-field");
     return;
   }
-  if (target.dataset.action === "setup-field") {
+  if (target.dataset.action === "setup-field" && target.tagName === "SELECT") {
     const setupField = target.dataset.setupField;
     if (setupField === "targetOutput") requestTargetOutput(target.value);
     else {
