@@ -1,5 +1,7 @@
 import {
   LIFECYCLE_STAGES,
+  getCompatibleFieldIds,
+  getFieldDefinition,
   getResearchType,
   getStageFieldDefinitions,
 } from "./catalog/index.js";
@@ -19,6 +21,7 @@ const GLOBAL_BLOCKING_CODES = new Set([
   "selected-source-empty",
   "evidence-budget-exceeded",
   "identifiable-data-present",
+  "stale-field-option",
 ]);
 
 function issue(code, messageKey, { fieldId = "", sourceId = "" } = {}) {
@@ -73,8 +76,12 @@ function requiredFieldsForStage(context) {
 }
 
 export function getRequiredFieldIds(typeId, stageId, studyDesignId, evidenceMode, fields) {
-  return requiredFieldsForStage(stageContext(typeId, stageId, studyDesignId, evidenceMode, fields))
-    .map(field => field.id);
+  const context = stageContext(typeId, stageId, studyDesignId, evidenceMode, fields);
+  const form = getStageFieldDefinitions(context);
+  return [
+    ...requiredFieldsForStage(context).map(field => field.id),
+    ...(form.draft && (form.draft.required || form.draft.designCritical) ? [form.draft.id] : []),
+  ];
 }
 
 function calculateStageReadiness(state, stageId, globalBlockers) {
@@ -87,9 +94,9 @@ function calculateStageReadiness(state, stageId, globalBlockers) {
   for (const field of required) {
     if (getStaleOptionIds(state, field, context).length) missingFieldIds.add(field.id);
   }
-  if (stageId === state.stageId
-    && form.draft?.designCritical
-    && state.drafts?.[form.draft.id]?.error === "composition-failed") {
+  const draft = form.draft ? state.drafts?.[form.draft.id] : undefined;
+  if (form.draft && (form.draft.required || form.draft.designCritical)
+    && (draft?.error === "composition-failed" || !hasMeaningfulValue(draft?.value))) {
     missingFieldIds.add(form.draft.id);
   }
   const missingIds = [...missingFieldIds];
@@ -127,13 +134,24 @@ function addAdaptiveFieldIssues(state, blocking, warnings) {
       warnings.push(issue(`missing-${field.id}`, "validation.missingRequiredField", { fieldId: field.id }));
     }
   }
-  for (const field of [...form.simple, ...form.advanced]) {
-    if (getStaleOptionIds(state, field, state).length) {
-      blocking.push(issue("stale-field-option", "validation.validationStaleOption", { fieldId: field.id }));
+  if (form.draft && (form.draft.required || form.draft.designCritical)) {
+    const draft = state.drafts?.[form.draft.id];
+    if (draft?.error === "composition-failed") {
+      blocking.push(issue("draft-composition-failed", "validation.validationDraftError", { fieldId: form.draft.id }));
+    } else if (!hasMeaningfulValue(draft?.value)) {
+      blocking.push(issue("missing-derived-draft", "validation.missingDerivedDraft", { fieldId: form.draft.id }));
     }
   }
-  if (form.draft?.designCritical && state.drafts?.[form.draft.id]?.error) {
-    blocking.push(issue("draft-composition-failed", "validation.validationDraftError", { fieldId: form.draft.id }));
+}
+
+function addGlobalStaleOptionIssues(state, blocking) {
+  const compatibleFieldIds = new Set(getCompatibleFieldIds(state));
+  for (const fieldId of Object.keys(state.fields ?? {})) {
+    if (!compatibleFieldIds.has(fieldId)) continue;
+    const field = getFieldDefinition(fieldId);
+    if (getStaleOptionIds(state, field, state).length) {
+      blocking.push(issue("stale-field-option", "validation.validationStaleOption", { fieldId }));
+    }
   }
 }
 
@@ -159,6 +177,7 @@ export function validateState(state) {
     blocking.push(issue("missing-stage", "validation.missingStage", { fieldId: "stageId" }));
   }
   addAdaptiveFieldIssues({ ...state, fields }, blocking, warnings);
+  addGlobalStaleOptionIssues({ ...state, fields }, blocking);
   if (state.evidenceMode === "uploaded" && !state.deidentificationConfirmed) {
     blocking.push(issue("deidentification-unconfirmed", "validation.confirmDeidentification", { fieldId: "evidenceDeidentified" }));
   }

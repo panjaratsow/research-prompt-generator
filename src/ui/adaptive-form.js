@@ -200,6 +200,7 @@ function renderDerivedText(field, state, preflight, locale) {
       name: field.id,
       rows: 4,
       value: draft.value,
+      required: Boolean(field.required || field.designCritical),
       "aria-describedby": `field-${field.id}-help field-${field.id}-status`,
       dataset: { fieldId: field.id, draftId: field.id },
     }),

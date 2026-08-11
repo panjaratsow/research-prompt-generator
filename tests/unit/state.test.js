@@ -167,6 +167,40 @@ describe("state transitions", () => {
     expect(confirmed.state.fields.analysisFamily).toBeUndefined();
   });
 
+  it.each([
+    ["before later-stage completion", false],
+    ["after later-stage completion", true],
+  ])("treats evidence mode as a compatibility transaction %s", (_label, completeLaterStage) => {
+    let state = { ...createInitialState(), interfaceLocale: "en", evidenceMode: "uploaded", stageId: "literature-review" };
+    state = setField(state, "informationSources", ["uploaded-source-set"]);
+    const uploadedSearchDraft = state.drafts.searchStrategy.suggested;
+
+    if (completeLaterStage) {
+      state = setStage(state, "synthesize-information");
+      state = setField(state, "evidencePattern", "limited");
+      state = setField(state, "synthesisMethod", "narrative");
+      state = setField(state, "evidenceCertainty", "low");
+      state = setField(state, "mainLimitations", ["risk-of-bias"]);
+    }
+
+    const pending = setEvidenceMode(state, "planning");
+    expect(pending).toMatchObject({
+      needsConfirmation: true,
+      analysis: {
+        fieldIds: [],
+        optionIdsByField: { informationSources: ["uploaded-source-set"] },
+      },
+    });
+    expect(pending.state).toBe(state);
+
+    const confirmed = setEvidenceMode(state, "planning", true, pending.analysis);
+    expect(confirmed.needsConfirmation).toBe(false);
+    expect(confirmed.state.evidenceMode).toBe("planning");
+    expect(confirmed.state.fields.informationSources).toBeUndefined();
+    expect(confirmed.state.drafts.searchStrategy.suggested).not.toBe(uploadedSearchDraft);
+    expect(JSON.stringify(confirmed.state.drafts)).not.toContain("Uploaded source set");
+  });
+
   it("uses structural sharing for evidence text during unrelated updates", () => {
     const source = { id: "S1", text: "private evidence", warnings: [] };
     const withSources = replaceSources(createInitialState(), [source]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, setField } from "../../src/state.js";
+import { createInitialState, setDraftValue, setField } from "../../src/state.js";
 import { LIFECYCLE_STAGES, getStageFieldDefinitions } from "../../src/catalog/index.js";
 import {
   getRequiredFieldIds,
@@ -47,8 +47,8 @@ describe("preflight validation", () => {
     const empty = validateState(createInitialState()).readinessByStage["define-question"];
     expect(empty).toEqual({
       status: "not-started",
-      remaining: 4,
-      missingFieldIds: ["topic", "population", "questionType", "primaryOutcome"],
+      remaining: 5,
+      missingFieldIds: ["topic", "population", "questionType", "primaryOutcome", "researchQuestion"],
       reasonCode: "",
     });
 
@@ -111,11 +111,11 @@ describe("preflight validation", () => {
 
   it("reads required field IDs from the stage catalogue", () => {
     expect(getRequiredFieldIds("observational", "define-question", "cohort", "planning", {}))
-      .toEqual(["topic", "population", "questionType", "primaryOutcome"]);
+      .toEqual(["topic", "population", "questionType", "primaryOutcome", "researchQuestion"]);
     expect(getRequiredFieldIds("observational", "literature-review", "cohort", "planning", {}))
-      .toEqual(["informationSources", "dateCoverage", "evidenceTypes", "searchConcepts"]);
+      .toEqual(["informationSources", "dateCoverage", "evidenceTypes", "searchConcepts", "searchStrategy"]);
     expect(getRequiredFieldIds("observational", "outline-methodology", "cohort", "planning", {}))
-      .toEqual(["confirmedDesign", "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod"]);
+      .toEqual(["confirmedDesign", "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod", "methodologyOutline"]);
   });
 
   it("routes contextual methodology and proposal issues to active compact fields", () => {
@@ -203,10 +203,10 @@ describe("preflight validation", () => {
     const result = validateState(state);
 
     expect(result.readinessByStage["define-question"]).toEqual({
-      status: "remaining",
+      status: "blocked",
       remaining: 1,
       missingFieldIds: ["questionType"],
-      reasonCode: "",
+      reasonCode: "stale-field-option",
     });
     expect(result.blocking).toContainEqual(expect.objectContaining({
       code: "stale-field-option",
@@ -235,6 +235,48 @@ describe("preflight validation", () => {
       code: "draft-composition-failed",
       fieldId: "researchQuestion",
     }));
+    expect(result.blocking).not.toContainEqual(expect.objectContaining({
+      code: "missing-derived-draft",
+      fieldId: "researchQuestion",
+    }));
+  });
+
+  it.each(["", " \t "])("blocks an empty design-critical draft value %j", value => {
+    const state = setDraftValue(completeDefineQuestionState(), "researchQuestion", value);
+    const result = validateState(state);
+
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-derived-draft",
+      fieldId: "researchQuestion",
+      messageKey: "validation.missingDerivedDraft",
+    }));
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["researchQuestion"],
+      reasonCode: "",
+    });
+  });
+
+  it("globally blocks and deduplicates a stale populated option from another stage", () => {
+    const complete = completeDefineQuestionState();
+    const staleState = {
+      ...complete,
+      stageId: "synthesize-information",
+      evidenceMode: "planning",
+      fields: {
+        ...complete.fields,
+        informationSources: ["uploaded-source-set"],
+      },
+    };
+
+    const result = validateState(staleState);
+    const staleIssues = result.blocking.filter(entry => entry.code === "stale-field-option");
+
+    expect(staleIssues).toEqual([
+      expect.objectContaining({ fieldId: "informationSources" }),
+    ]);
+    expect(Object.values(result.readinessByStage).every(readiness => readiness.status === "blocked")).toBe(true);
   });
 
   it("counts a field only once when it is both incomplete and stale", () => {
@@ -245,10 +287,10 @@ describe("preflight validation", () => {
     };
 
     expect(validateState(state).readinessByStage["define-question"]).toEqual({
-      status: "remaining",
+      status: "blocked",
       remaining: 1,
       missingFieldIds: ["questionType"],
-      reasonCode: "",
+      reasonCode: "stale-field-option",
     });
   });
 

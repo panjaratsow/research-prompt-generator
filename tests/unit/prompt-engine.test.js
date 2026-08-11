@@ -7,23 +7,34 @@ import {
   PreflightError,
 } from "../../src/prompt-engine.js";
 import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
-import { createInitialState } from "../../src/state.js";
+import {
+  createInitialState,
+  setDraftValue,
+  setEvidenceMode,
+  setField,
+  setStage,
+} from "../../src/state.js";
 
 function validPlanningState(overrides = {}) {
   const initial = createInitialState();
+  const fields = {
+    ...COMPLETE_STAGE_FIELDS,
+    ...overrides.fields,
+  };
   return {
     ...initial,
     ...overrides,
-    fields: {
-      ...COMPLETE_STAGE_FIELDS,
-      ...overrides.fields,
-    },
+    fields,
     fieldCustomValues: {
       ...initial.fieldCustomValues,
       ...overrides.fieldCustomValues,
     },
     drafts: {
-      ...initial.drafts,
+      ...Object.fromEntries(Object.entries(initial.drafts).map(([draftId, draft]) => [draftId, {
+        ...draft,
+        suggested: fields[draftId] ?? "",
+        value: fields[draftId] ?? "",
+      }])),
       ...overrides.drafts,
     },
   };
@@ -280,6 +291,62 @@ describe("prompt contract", () => {
     expect(planning).toContain("does not permit literature claims or citations");
   });
 
+  it("blocks prompt generation for a stale option populated in another stage", () => {
+    const state = validPlanningState({
+      stageId: "synthesize-information",
+      evidenceMode: "planning",
+      fields: { informationSources: ["uploaded-source-set"] },
+    });
+
+    let error;
+    try {
+      buildPrompt(state);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(PreflightError);
+    expect(error.issues).toContainEqual(expect.objectContaining({
+      code: "stale-field-option",
+      fieldId: "informationSources",
+    }));
+  });
+
+  it("removes Uploaded-only draft instructions before building a Planning prompt", () => {
+    let state = { ...createInitialState(), interfaceLocale: "en", evidenceMode: "uploaded", stageId: "literature-review" };
+    state = setField(state, "informationSources", ["uploaded-source-set"]);
+    state = setField(state, "dateCoverage", "last-10-years");
+    state = setField(state, "evidenceTypes", ["observational-studies"]);
+    state = setField(state, "searchConcepts", "postpartum haemorrhage");
+    state = setStage(state, "synthesize-information");
+    state = setField(state, "evidencePattern", "limited");
+    state = setField(state, "synthesisMethod", "narrative");
+    state = setField(state, "evidenceCertainty", "low");
+    state = setField(state, "mainLimitations", ["risk-of-bias"]);
+
+    const pending = setEvidenceMode(state, "planning");
+    state = setEvidenceMode(state, "planning", true, pending.analysis).state;
+    const prompt = buildPrompt(state);
+
+    expect(prompt).toContain("Planning mode does not permit literature claims or citations");
+    expect(prompt).not.toContain("Uploaded source set");
+    expect(prompt).not.toContain("Use Uploaded source set");
+  });
+
+  it("blocks prompt generation when the current required draft is whitespace", () => {
+    const state = setDraftValue(validPlanningState(), "researchQuestion", " \t ");
+
+    expect(() => buildPrompt(state)).toThrow(PreflightError);
+    try {
+      buildPrompt(state);
+    } catch (error) {
+      expect(error.issues).toContainEqual(expect.objectContaining({
+        code: "missing-derived-draft",
+        fieldId: "researchQuestion",
+      }));
+    }
+  });
+
   it("requires named databases, official sources, stable links, and a search date for web research", () => {
     const prompt = buildPrompt(validPlanningState({ evidenceMode: "web-research" }));
 
@@ -486,6 +553,10 @@ describe("prompt contract", () => {
         modelInputs: "Chest radiographs",
         validationDataset: "External dataset",
         performanceMeasures: "Calibration and discrimination",
+        questionType: "external-validation",
+        synthesisMethod: "ai-narrative",
+        dataSourceRecruitment: "multicentre-external-data",
+        analysisFamily: "external-validation",
         problemStatement: "External validity is uncertain",
         methodologyOutline: "External validation study",
         resourcesTimeline: "12 months",
@@ -537,8 +608,10 @@ describe("prompt contract", () => {
         reviewType: "Systematic review",
         reviewQuestion: "What is the effect of simulation-based education?",
         eligibilityCriteria: "Comparative studies",
-        informationSources: "MEDLINE and ERIC",
-        synthesisMethod: "Random-effects meta-analysis",
+        informationSources: ["medline", "eric"],
+        synthesisMethod: "pairwise-meta-analysis",
+        dataSourceRecruitment: "published-literature",
+        analysisFamily: "random-effects-meta-analysis",
       },
     }));
     const finalSection = prompt.slice(prompt.indexOf("12. LIMITATIONS AND HUMAN REVIEW"));
@@ -589,6 +662,7 @@ describe("prompt contract", () => {
   it("selects review-specific methodological checks without observational claims", () => {
     const prompt = buildPrompt(validPlanningState({
       researchTypeId: "evidence-review",
+      studyDesignId: "systematic-review",
       fields: {
         topic: "Postpartum haemorrhage",
         population: "Women giving birth in Thai referral hospitals",
@@ -596,8 +670,10 @@ describe("prompt contract", () => {
         reviewType: "Systematic review",
         reviewQuestion: "Which interventions reduce severe postpartum haemorrhage?",
         eligibilityCriteria: "Randomized trials",
-        informationSources: "MEDLINE and Embase",
-        synthesisMethod: "Random-effects meta-analysis",
+        informationSources: ["medline", "embase"],
+        synthesisMethod: "pairwise-meta-analysis",
+        dataSourceRecruitment: "published-literature",
+        analysisFamily: "random-effects-meta-analysis",
       },
     }));
 

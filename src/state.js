@@ -293,9 +293,10 @@ export function restoreDraft(state, draftId, locale = state.interfaceLocale) {
   }, locale);
 }
 
-export function setEvidenceMode(state, mode) {
+export function setEvidenceMode(state, mode, confirmed = false, analysis) {
   assertEnum(mode, EVIDENCE_MODES);
-  return { ...state, evidenceMode: mode };
+  const nextContext = contextFor(state, { evidenceMode: mode });
+  return transitionResult(state, nextContext, confirmed, analysis ?? analyzeContextTransition(state, nextContext));
 }
 
 export function setOutputLanguage(state, language) {

@@ -174,7 +174,7 @@ export function renderWorkspace(root, state, preflight) {
 export function renderConfirmation(root, labels, locale, kind = "transition") {
   const dialogRoot = root.querySelector("#dialogRoot");
   const cancel = element("button", { type: "button", className: "secondary-button", dataset: { action: "cancel-confirmation" }, textContent: t(locale, "cancel") });
-  const clearingEvidence = labels.length === 0 && kind === "evidence-mode";
+  const clearingEvidence = kind === "evidence-mode";
   const resetting = kind === "reset";
   const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : resetting ? t(locale, "resetConfirm") : t(locale, "confirm") });
   dialogRoot.replaceChildren(element("div", { className: "dialog-backdrop" }, [element("section", { className: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirmTitle" }, [

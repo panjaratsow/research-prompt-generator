@@ -106,7 +106,8 @@ function confirmTransition() {
   }
   else if (transition.kind === "evidence-mode") {
     cancelEvidenceProcessing();
-    next = setDeidentificationConfirmed(replaceSources(setEvidenceMode(state, transition.nextId), []), false);
+    const transitioned = setEvidenceMode(state, transition.nextId, true, transition.analysis).state;
+    next = setDeidentificationConfirmed(replaceSources(transitioned, []), false);
   }
   else if (transition.kind === "target-output") next = setTargetOutput(state, transition.nextId);
   else next = setStage(state, transition.nextId);
@@ -122,15 +123,25 @@ function confirmTransition() {
 }
 
 function requestEvidenceMode(nextMode) {
-  if (state.evidenceMode === "uploaded" && nextMode !== "uploaded" && state.sources.length) {
-    beginConfirmation({ kind: "evidence-mode", nextId: nextMode, restoreSelector: "#evidenceMode" });
+  const transition = setEvidenceMode(state, nextMode);
+  const leavingUploaded = state.evidenceMode === "uploaded" && nextMode !== "uploaded";
+  if (transition.needsConfirmation || (leavingUploaded && state.sources.length)) {
+    beginConfirmation({
+      kind: "evidence-mode",
+      nextId: nextMode,
+      nextContext: { evidenceMode: nextMode },
+      analysis: transition.analysis,
+      restoreSelector: "#evidenceMode",
+    });
     return;
   }
-  if (state.evidenceMode === "uploaded" && nextMode !== "uploaded") cancelEvidenceProcessing();
+  if (leavingUploaded) cancelEvidenceProcessing();
   pendingFiles = nextMode === "uploaded" ? pendingFiles : [];
   evidenceIssues = [];
-  const next = setEvidenceMode(state, nextMode);
-  update(nextMode === "uploaded" ? next : setDeidentificationConfirmed(next, false), "set-evidence-mode");
+  const next = state.evidenceMode === nextMode
+    ? transition.state
+    : setDeidentificationConfirmed(transition.state, false);
+  update(next, "set-evidence-mode");
   root.querySelector('[data-action="evidence-mode"]')?.focus();
 }
 

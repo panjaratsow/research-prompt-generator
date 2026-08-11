@@ -516,7 +516,7 @@ test("approved seven-step lifecycle renders translated labels, tasks, and adapti
   }
 });
 
-test("matrix completion rejects a visible empty draft and non-ready stage", async ({ page }) => {
+test("empty required draft blocks readiness and generation through production input", async ({ page }) => {
   await page.goto("/");
   await page.getByTestId("interface-language").selectOption("en");
   await page.getByLabel("Research type").selectOption("randomized-trial");
@@ -527,16 +527,18 @@ test("matrix completion rejects a visible empty draft and non-ready stage", asyn
 
   const draft = page.locator(`[data-draft-id="${stage.draftId}"]`);
   const stageStatus = page.locator(`[data-action="stage"][data-stage-id="${stage.id}"] [data-stage-status]`);
-  await draft.evaluate(control => { control.value = " "; });
-  await stageStatus.evaluate(status => { status.textContent = "Ready"; });
+  await expect(draft).toHaveAttribute("required", "");
+  await draft.fill(" \t ");
 
-  await expect(draft).toBeVisible();
-  await expect(page.getByTestId("validation-summary")).not.toContainText("A previous choice is incompatible with the current setup");
-  await expect(expectCompletedStage(page, stage)).rejects.toThrow();
+  await expect(stageStatus).not.toHaveText("Ready");
+  await expect(page.getByTestId("preflight-blockers")).toContainText("Complete the required draft");
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toHaveCount(0);
+  await expect(draft).toBeFocused();
 
-  await draft.evaluate(control => { control.value = "A complete draft"; });
-  await stageStatus.evaluate(status => { status.textContent = "1 required item remaining"; });
-  await expect(expectCompletedStage(page, stage)).rejects.toThrow();
+  await draft.fill("A complete user-customized research question");
+  await expect(stageStatus).toHaveText("Ready");
+  await expect(page.getByTestId("preflight-blockers")).toContainText("No blocking issues");
 });
 
 test("matrix completion rejects a required group without a supported visible control", async ({ page }) => {
@@ -636,6 +638,49 @@ for (const evidenceMode of EVIDENCE_MODE_CASES) {
     }
   });
 }
+
+test("evidence-mode confirmation atomically clears Uploaded-only context before Planning generation", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  const evidenceMode = page.getByLabel("Evidence mode");
+  await evidenceMode.selectOption("uploaded");
+
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  await completeVisibleRequiredControls(requiredSimpleFieldGroups(page));
+  const uploadedSource = page.getByRole("checkbox", { name: "Uploaded source set" });
+  await expect(uploadedSource).toBeChecked();
+  await page.getByTestId("evidence-input").setInputFiles("tests/fixtures/searchable-evidence.pdf");
+
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+  await completeVisibleRequiredControls(requiredSimpleFieldGroups(page));
+  await evidenceMode.selectOption("planning");
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.locator("li")).toHaveText(["Information sources"]);
+  await expect(dialog).not.toContainText("Uploaded source set");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(evidenceMode).toHaveValue("uploaded");
+  await expect(evidenceMode).toBeFocused();
+  await expect(page.getByTestId("privacy-confirmation")).toBeVisible();
+
+  await page.locator('[data-action="stage"][data-stage-id="literature-review"]').click();
+  await expect(uploadedSource).toBeChecked();
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+  await evidenceMode.selectOption("planning");
+  await page.locator('[data-action="confirm-confirmation"]').click();
+
+  await expect(evidenceMode).toHaveValue("planning");
+  await expect(evidenceMode).toBeFocused();
+  await evidenceMode.selectOption("uploaded");
+  await expect(page.getByTestId("privacy-confirmation")).toHaveCount(0);
+  await evidenceMode.selectOption("planning");
+
+  await page.getByRole("button", { name: "Generate prompt" }).click();
+  const prompt = page.getByTestId("prompt-output");
+  await expect(prompt).toContainText("Planning mode does not permit literature claims or citations");
+  await expect(prompt).not.toContainText("Uploaded source set");
+  await expect(prompt).not.toContainText("Use Uploaded source set");
+});
 
 test("Research profile starts collapsed outside the compact setup", async ({ page }) => {
   await page.goto("/");
