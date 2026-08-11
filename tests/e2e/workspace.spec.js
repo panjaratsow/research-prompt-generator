@@ -226,11 +226,49 @@ async function responsiveGeometry(page) {
     }
 
     const lifecycleRail = document.querySelector("#lifecycleRail");
-    for (const button of visible("#lifecycleRail > .stage-button")) {
-      const rect = button.getBoundingClientRect();
-      if (rect.left >= lifecycleRail.getBoundingClientRect().left - tolerance && rect.right <= lifecycleRail.getBoundingClientRect().right + tolerance) {
-        addBounds("lifecycle button", button, lifecycleRail);
-        addViewportBounds("lifecycle button", button);
+    const lifecycleRailGeometry = {
+      horizontalOverflow: false,
+      allowsHorizontalScroll: false,
+      contentReachable: false,
+      verticalOverflow: false,
+    };
+    if (lifecycleRail && isVisible(lifecycleRail)) {
+      const railStyle = getComputedStyle(lifecycleRail);
+      const railRect = lifecycleRail.getBoundingClientRect();
+      const maxScrollLeft = lifecycleRail.scrollWidth - lifecycleRail.clientWidth;
+      lifecycleRailGeometry.horizontalOverflow = maxScrollLeft > tolerance;
+      lifecycleRailGeometry.allowsHorizontalScroll = ["auto", "scroll"].includes(railStyle.overflowX);
+      lifecycleRailGeometry.verticalOverflow = lifecycleRail.scrollHeight > lifecycleRail.clientHeight + tolerance;
+
+      if (lifecycleRailGeometry.horizontalOverflow) {
+        if (!lifecycleRailGeometry.allowsHorizontalScroll) {
+          overflows.push(`lifecycle rail: ${label(lifecycleRail)} has horizontal overflow without scroll access`);
+        }
+        const originalScrollLeft = lifecycleRail.scrollLeft;
+        lifecycleRail.scrollLeft = maxScrollLeft;
+        lifecycleRailGeometry.contentReachable = lifecycleRail.scrollLeft >= maxScrollLeft - tolerance;
+        lifecycleRail.scrollLeft = originalScrollLeft;
+        if (!lifecycleRailGeometry.contentReachable) {
+          overflows.push(`lifecycle rail: ${label(lifecycleRail)} horizontal content is unreachable`);
+        }
+      } else {
+        lifecycleRailGeometry.contentReachable = true;
+      }
+      if (lifecycleRailGeometry.verticalOverflow) {
+        overflows.push(`lifecycle rail: ${label(lifecycleRail)} scrollHeight ${lifecycleRail.scrollHeight} exceeds clientHeight ${lifecycleRail.clientHeight}`);
+      }
+
+      for (const button of visible("#lifecycleRail > .stage-button")) {
+        const rect = button.getBoundingClientRect();
+        const contentLeft = rect.left - railRect.left + lifecycleRail.scrollLeft;
+        const contentRight = rect.right - railRect.left + lifecycleRail.scrollLeft;
+        const expectedContentLeft = button.offsetLeft - lifecycleRail.offsetLeft;
+        const outsideVertical = rect.top < railRect.top - tolerance || rect.bottom > railRect.bottom + tolerance;
+        const outsideContent = contentLeft < -tolerance || contentRight > lifecycleRail.scrollWidth + tolerance;
+        const displacedFromContent = Math.abs(contentLeft - expectedContentLeft) > tolerance;
+        if (outsideVertical || outsideContent || displacedFromContent) {
+          outOfBounds.push(`lifecycle button: ${label(button)} escapes ${label(lifecycleRail)}`);
+        }
       }
     }
     const columns = selector => {
@@ -246,6 +284,7 @@ async function responsiveGeometry(page) {
       overlaps,
       outOfBounds,
       overflows,
+      lifecycleRail: lifecycleRailGeometry,
       simpleColumns: columns(".simple-fields"),
       advancedColumns: columns(".advanced-fields"),
       regionWidthDeltas: [".simple-fields", ".draft-field", ".advanced-disclosure"]
@@ -453,6 +492,10 @@ for (const viewport of [
     expect(geometry.overlaps).toEqual([]);
     expect(geometry.outOfBounds).toEqual([]);
     expect(geometry.overflows).toEqual([]);
+    expect(geometry.lifecycleRail.verticalOverflow).toBe(false);
+    expect(geometry.lifecycleRail.contentReachable).toBe(true);
+    expect(geometry.lifecycleRail.horizontalOverflow).toBe(viewport.name === "mobile");
+    expect(geometry.lifecycleRail.allowsHorizontalScroll).toBe(viewport.name === "mobile");
     expect(geometry.simpleColumns).toBe(viewport.columns);
     expect(geometry.advancedColumns).toBe(viewport.columns);
     expect(geometry.simpleColumns).toBeLessThanOrEqual(2);
@@ -476,6 +519,31 @@ test("responsive geometry detects an injected header overlap", async ({ page }) 
   const geometry = await responsiveGeometry(page);
 
   expect(geometry.overlaps).toContain("header: .brand-lockup intersects .header-actions");
+});
+
+test("responsive geometry detects a translated visible lifecycle button", async ({ page }) => {
+  await page.setViewportSize({ width: 412, height: 915 });
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByRole("button", { name: "Research profile" }).click();
+  await populateSynthesisContext(page);
+  const oldBehavior = await page.evaluate(() => {
+    const rail = document.querySelector("#lifecycleRail");
+    const button = rail.querySelector(".stage-button");
+    rail.scrollLeft = button.offsetLeft - rail.offsetLeft;
+    button.style.transform = "translateX(-20px)";
+
+    const tolerance = 1;
+    const rect = button.getBoundingClientRect();
+    const railRect = rail.getBoundingClientRect();
+    const oldWouldCheck = rect.left >= railRect.left - tolerance && rect.right <= railRect.right + tolerance;
+    return { oldWouldCheck, oldOutOfBounds: oldWouldCheck ? ["would check bounds"] : [] };
+  });
+
+  const geometry = await responsiveGeometry(page);
+
+  expect(oldBehavior).toEqual({ oldWouldCheck: false, oldOutOfBounds: [] });
+  expect(geometry.outOfBounds).toContain("lifecycle button: .stage-button escapes #lifecycleRail");
 });
 
 test("responsive adaptive choices expose checked and focus-visible container states", async ({ page }) => {

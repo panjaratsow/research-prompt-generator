@@ -85,3 +85,15 @@ Visual inspection at original resolution:
 - RED: added an isolated `1024x768` fixture that shifts `.header-actions` over `.brand-lockup`. With the pre-fix helper, the test failed as intended: expected `header: .brand-lockup intersects .header-actions`, received `[]`. The initial stylesheet-injection fixture was blocked by the page CSP, so the final fixture uses a direct DOM position mutation and does not weaken production policy.
 - GREEN: the same fixture passes with the expanded helper because the header peer collision is reported. The unmodified UI then passed the focused matrix with the new empty `overlaps`, `outOfBounds`, and `overflows` assertions: `6 passed` across desktop/mobile Chromium and all three target viewports. Existing column limits, full-width-region, institution-value, and stable-disclosure assertions remain in place.
 - No real CSS issue was exposed, so `styles.css` and screenshot baselines were intentionally left unchanged.
+
+## Second Review Fix (2026-08-11)
+
+`responsiveGeometry()` now models `#lifecycleRail` as an intentional horizontal scroller. When its content exceeds its client width, the helper requires `overflow-x: auto` or `scroll`, confirms that its maximum scroll position is reachable, and does not add that permitted horizontal overflow to the generic failure list. It rejects vertical rail overflow. Every visible stage button is checked even when a neighboring button is clipped by the current horizontal scroll position: its visual vertical bounds must remain within the rail, and its scroll-adjusted horizontal content coordinates must remain inside the rail's `scrollWidth` and match its layout content coordinate. This distinguishes normal scroll clipping from transformed or otherwise displaced button content.
+
+### RED/GREEN Evidence
+
+- RED: at `412x915`, a focused test scrolls the first visible lifecycle stage button to the rail edge and applies `translateX(-20px)`. The prior fully-inside gate reports `{ oldWouldCheck: false, oldOutOfBounds: [] }`; the pre-fix helper likewise returned no lifecycle out-of-bounds entry, so the new assertion failed as intended.
+- GREEN: the revised helper reports `lifecycle button: .stage-button escapes #lifecycleRail` for that same mutation. The unmodified UI reports no overlaps, bounds escapes, unintended overflow, vertical rail overflow, or unreachable rail content. The lifecycle rail is required to have reachable horizontal overflow only at the mobile viewport.
+- Focused responsive geometry, run serially with the bundled Node runtime: desktop Chromium `5 passed (6.0s)`; mobile Chromium `5 passed (5.9s)`. Each run retains the `1440x900`, `1024x768`, and `412x915` cases plus the existing header mutation and new lifecycle mutation.
+- Full relevant E2E regression, run serially with the bundled Node runtime: desktop/mobile Chromium `106 passed (2.3m)`, including accessibility, keyboard, screenshot, column, and disclosure checks.
+- No CSS or screenshot baseline change was required.
