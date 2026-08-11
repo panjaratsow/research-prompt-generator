@@ -151,12 +151,17 @@ function renderChoiceGroup(field, state, preflight, locale, type) {
     ]);
   });
   const other = renderOtherInput(field, state, locale);
+  const legend = fieldLabel(field, locale, "legend");
+  const requiredGuidance = type === "checkbox" && field.required
+    ? element("small", { id: `field-${field.id}-required`, className: "visually-hidden", textContent: t(locale, "requiredGroupGuidance") })
+    : null;
   return element("fieldset", {
     className: `${fieldClass(field, preflight)} ${type === "radio" ? "segmented-field" : "checkbox-field"}`,
-    "aria-describedby": `field-${field.id}-help`,
+    "aria-describedby": `field-${field.id}-help${requiredGuidance ? ` field-${field.id}-required` : ""}`,
   }, [
-    fieldLabel(field, locale, "legend"),
+    legend,
     fieldHelp(field, locale),
+    ...(requiredGuidance ? [requiredGuidance] : []),
     element("div", { className: type === "radio" ? "segmented-control" : "checkbox-chips" }, controls),
     ...(other ? [other] : []),
   ]);

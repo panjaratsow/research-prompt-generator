@@ -321,6 +321,24 @@ const interfaceCopy = deepFreeze({
     restoreSuggested: "คืนค่าข้อความแนะนำ", suggestedDraft: "ข้อความร่างที่ระบบประกอบให้",
     customizedDraft: "ข้อความร่างที่ผู้ใช้แก้ไข", chooseOption: "เลือกตัวเลือก",
     previousChoice: "ตัวเลือกเดิม - โปรดเลือกใหม่: {value}", edit: "แก้ไข", editField: "แก้ไข {field}",
+    requiredGroupGuidance: "จำเป็น เลือกอย่างน้อยหนึ่งตัวเลือก",
+    confirmation: {
+      researchType: { title: "เปลี่ยนประเภทงานวิจัย?", body: "การเปลี่ยนประเภทงานวิจัยจะล้างข้อมูลต่อไปนี้:", action: "เปลี่ยนประเภทงานวิจัย" },
+      studyDesign: { title: "เปลี่ยนรูปแบบการศึกษา?", body: "การเปลี่ยนรูปแบบการศึกษาจะล้างข้อมูลต่อไปนี้:", action: "เปลี่ยนรูปแบบการศึกษา" },
+      other: { title: "แทนที่ตัวเลือกอื่น?", body: "การแทนที่ตัวเลือกอื่นจะลบรายละเอียดที่ระบุไว้:", action: "แทนที่ตัวเลือก" },
+      stage: { title: "เปลี่ยนขั้นตอนงานวิจัย?", body: "การเปลี่ยนขั้นตอนงานวิจัยจะล้างข้อมูลต่อไปนี้:", action: "เปลี่ยนขั้นตอน" },
+      targetOutput: { title: "เปลี่ยนผลลัพธ์เป้าหมาย?", body: "การเปลี่ยนผลลัพธ์เป้าหมายจะล้างข้อมูลต่อไปนี้:", action: "เปลี่ยนผลลัพธ์" },
+      evidenceMode: { title: "เปลี่ยนโหมดหลักฐาน?", body: "การเปลี่ยนโหมดหลักฐานจะล้างหลักฐานในหน่วยความจำและข้อมูลต่อไปนี้:", action: "ล้างและเปลี่ยนโหมด" },
+      reset: { title: "เริ่มพื้นที่ทำงานใหม่?", body: "ข้อมูลในฟอร์มและหลักฐานในหน่วยความจำจะถูกล้าง", action: "เริ่มพื้นที่ทำงานใหม่" },
+    },
+    status: {
+      reset: "เริ่มพื้นที่ทำงานใหม่แล้ว",
+      transition: { researchType: "อัปเดตประเภทงานวิจัยแล้ว", studyDesign: "อัปเดตรูปแบบการศึกษาแล้ว", other: "แทนที่ตัวเลือกอื่นแล้ว", stage: "อัปเดตขั้นตอนงานวิจัยแล้ว", targetOutput: "อัปเดตผลลัพธ์เป้าหมายแล้ว", evidenceMode: "อัปเดตโหมดหลักฐานแล้ว" },
+    },
+    blockerReasons: {
+      "missing-research-type": "ยังไม่ได้เลือกประเภทงานวิจัย", "missing-stage": "ยังไม่ได้เลือกขั้นตอนงานวิจัย", "deidentification-unconfirmed": "ยังไม่ได้ยืนยันการลบข้อมูลระบุตัวตน", "uploaded-evidence-empty": "ยังไม่มีหลักฐานที่พร้อมใช้งาน", "selected-source-empty": "แหล่งหลักฐานที่เลือกไม่มีข้อความ", "evidence-budget-exceeded": "หลักฐานเกินงบประมาณ", "identifiable-data-present": "พบข้อมูลที่อาจระบุตัวตนได้", "stale-field-option": "มีตัวเลือกเดิมที่ไม่เข้ากับการตั้งค่าปัจจุบัน", unknown: "มีข้อขัดข้องที่ต้องดำเนินการ",
+    },
+    validation: { missingRequiredField: "กรอกข้อมูล: {field}", missingDerivedDraft: "กรอกข้อมูล: {field}", validationOtherRequired: "ระบุรายละเอียดสำหรับตัวเลือกอื่นของ {field}", focusField: "ไปที่ {field}" },
   },
   en: {
     validationHeading: "Items to address", warningsHeading: "Considerations", stageNotStarted: "Not started",
@@ -330,6 +348,24 @@ const interfaceCopy = deepFreeze({
     restoreSuggested: "Restore suggested text", suggestedDraft: "Suggested draft",
     customizedDraft: "User-customized draft", chooseOption: "Select an option",
     previousChoice: "Previous choice - select a replacement: {value}", edit: "Edit", editField: "Edit {field}",
+    requiredGroupGuidance: "Required. Select at least one option.",
+    confirmation: {
+      researchType: { title: "Change research type?", body: "Changing research type will clear these fields:", action: "Change research type" },
+      studyDesign: { title: "Change study design?", body: "Changing study design will clear these fields:", action: "Change study design" },
+      other: { title: "Replace the Other choice?", body: "Replacing the Other choice will remove its custom detail:", action: "Replace choice" },
+      stage: { title: "Change research stage?", body: "Changing research stage will clear these fields:", action: "Change stage" },
+      targetOutput: { title: "Change target output?", body: "Changing target output will clear these fields:", action: "Change target output" },
+      evidenceMode: { title: "Change evidence mode?", body: "Changing evidence mode will clear in-memory evidence and these fields:", action: "Clear and change mode" },
+      reset: { title: "Start a new workspace?", body: "Form fields and in-memory evidence will be cleared.", action: "Start new workspace" },
+    },
+    status: {
+      reset: "Workspace reset.",
+      transition: { researchType: "Research type updated.", studyDesign: "Study design updated.", other: "Other choice replaced.", stage: "Research stage updated.", targetOutput: "Target output updated.", evidenceMode: "Evidence mode updated." },
+    },
+    blockerReasons: {
+      "missing-research-type": "A research type has not been selected", "missing-stage": "A research stage has not been selected", "deidentification-unconfirmed": "De-identification has not been confirmed", "uploaded-evidence-empty": "No ready evidence is available", "selected-source-empty": "A selected evidence source has no text", "evidence-budget-exceeded": "Selected evidence exceeds the budget", "identifiable-data-present": "Potentially identifiable information was found", "stale-field-option": "A previous choice is incompatible with the current setup", unknown: "An item needs attention",
+    },
+    validation: { missingRequiredField: "Complete: {field}", missingDerivedDraft: "Complete: {field}", validationOtherRequired: "Specify the Other choice for {field}.", focusField: "Go to {field}" },
   },
 });
 const studyDesignIds = [
@@ -413,4 +449,4 @@ export const copy = deepFreeze({
   en: { interfaceLanguage:"Language", privacyFirst:"Privacy-first", setup:"Workspace setup", researchType:"Research type", evidenceMode:"Evidence mode", outputLanguage:"Output language", lifecycle:"Research lifecycle", standards:"Relevant standards", stageMatch:"Stage match", validation:"Items to address", noIssues:"No blocking issues", noStageStandard:"No stage-specific standard is matched yet.", required:"Required", fieldHelp:Object.fromEntries(Object.entries(fieldHelpLabels).map(([id, value]) => [id, value[1]])), promptPlaceholder:"Prompt actions will be available in the next workspace step.", confirmTitle:"Clear incompatible fields?", confirmText:"Changing research type will clear these fields:", stageConfirmText:"Changing research stage will clear these fields:", confirm:"Confirm change", cancel:"Cancel", status:{ reset:"Workspace reset." }, actions:{ reset:"Start a new workspace", generate:"Generate prompt", copy:"Copy prompt", download:"Download prompt" }, uploadStates:{ idle:"Ready for documents", uploading:"Uploading", extracting:"Extracting text", ready:"Ready", error:"Upload failed" }, evidenceModes:names(["planning","uploaded","web-research"],["Planning", "Uploaded documents", "Web research"]), outputLanguages:names(["thai","english","bilingual"],["Thai", "English", "Thai and English"]), researchTypes:names(["randomized-trial","observational","diagnostic","prediction","evidence-review","qualitative-mixed","medical-education","laboratory-animal","ai-health-data","implementation-qi-economic"],["Randomized trial", "Observational study", "Diagnostic accuracy", "Prediction modelling", "Evidence review", "Qualitative and mixed methods", "Medical education", "Laboratory and animal research", "AI and health data", "Implementation, quality improvement, and economics"]), stages:names(["define-question", "literature-review", "synthesize-information", "identify-gaps", "generate-hypotheses", "outline-methodology", "write-proposal"],["Step 1: Define the Research Question", "Step 2: Conduct a Literature Review", "Step 3: Synthesize Information", "Step 4: Identify Research Gaps", "Step 5: Generate Hypotheses", "Step 6: Outline Research Methodology", "Step 7: Write a Research Proposal"]), stageTasks:stageTasks.en, fields:Object.fromEntries(Object.entries({ ...fieldLabels, ...adaptiveFieldLabels }).map(([id, value]) => [id, value[1]])), options:{ ...setupCopy.en.studyDesigns, ...Object.fromEntries(Object.entries(optionLabels).map(([id, value]) => [id, value[1]])) }, validation:{ missingTopic:"Provide a research topic", missingQuestion:"Provide a research question", missingDerivedDraft:"Complete the required draft", missingRequiredField:"Complete the required field", missingResearchType:"Select a research type", missingStage:"Select a lifecycle stage", confirmDeidentification:"Confirm that identifying information was removed", uploadEvidence:"Add ready evidence", emptySourceText:"A selected source has no extracted text", evidenceBudgetExceeded:"Selected evidence exceeds the budget", identifiableDataPresent:"Potentially identifiable information was found", sourceIdentifierHint:"A source may contain an identifier", missingFeasibility:"Add resources and timeline", missingRegistration:"Consider study registration", missingEthics:"Consider ethics approval", missingDataSharing:"Consider a data-sharing plan", missingExternalValidation:"Consider external validation", validationStaleOption:"A previous choice is incompatible with the current setup. Choose a replacement.", validationOtherRequired:"Specify the Other choice.", validationDraftError:"The draft could not be refreshed; the previous text is preserved." } }
 });
 
-export function t(locale, key, replacements = {}) { const value = interfaceCopy[locale]?.[key] ?? key.split(".").reduce((part, segment) => part?.[segment], setupCopy[locale] ?? setupCopy.en) ?? key.split(".").reduce((part, segment) => part?.[segment], copy[locale] ?? copy.en) ?? key.split(".").reduce((part, segment) => part?.[segment], evidenceCopy[locale] ?? evidenceCopy.en) ?? key.split(".").reduce((part, segment) => part?.[segment], inventoryCopy[locale] ?? inventoryCopy.en) ?? key.split(".").reduce((part, segment) => part?.[segment], drawerCopy[locale] ?? drawerCopy.en) ?? key; return typeof value === "string" ? value.replace(/\{(\w+)\}/g, (_, name) => replacements[name] ?? "") : value; }
+export function t(locale, key, replacements = {}) { const lookup = source => key.split(".").reduce((part, segment) => part?.[segment], source); const value = lookup(interfaceCopy[locale] ?? interfaceCopy.en) ?? lookup(setupCopy[locale] ?? setupCopy.en) ?? lookup(copy[locale] ?? copy.en) ?? lookup(evidenceCopy[locale] ?? evidenceCopy.en) ?? lookup(inventoryCopy[locale] ?? inventoryCopy.en) ?? lookup(drawerCopy[locale] ?? drawerCopy.en) ?? key; return typeof value === "string" ? value.replace(/\{(\w+)\}/g, (_, name) => replacements[name] ?? "") : value; }

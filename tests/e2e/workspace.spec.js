@@ -531,7 +531,7 @@ test("empty required draft blocks readiness and generation through production in
   await draft.fill(" \t ");
 
   await expect(stageStatus).not.toHaveText("Ready");
-  await expect(page.getByTestId("preflight-blockers")).toContainText("Complete the required draft");
+  await expect(page.getByTestId("preflight-blockers")).toContainText("Complete: Research question");
   await page.getByRole("button", { name: "Generate prompt" }).click();
   await expect(page.getByRole("dialog", { name: "Generated research prompt" })).toHaveCount(0);
   await expect(draft).toBeFocused();
@@ -1065,9 +1065,98 @@ test("Other confirmation restores the old choice on Escape and clears only custo
   await expect(page.getByLabel("Other - specify")).toHaveValue("Mechanistic question");
 
   await questionType.selectOption("prognosis");
-  await page.getByRole("button", { name: "Confirm" }).click();
+  await page.getByRole("button", { name: "Replace choice" }).click();
   await expect(questionType).toHaveValue("prognosis");
   await expect(page.getByLabel("Other - specify")).toHaveCount(0);
+});
+
+test("uses kind-specific English confirmation copy and announces completed design and Other changes", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  await page.getByLabel("Research type").selectOption("prediction");
+  await page.getByLabel("Study subtype or design").selectOption("prediction-external-validation");
+  await page.evaluate(() => window.__TEST_ONLY__.setFieldValue("externalValidation", "Internal note"));
+
+  await page.getByLabel("Study subtype or design").selectOption("prediction-development");
+  const designDialog = page.getByRole("dialog");
+  await expect(designDialog).toHaveAccessibleName("Change study design?");
+  await expect(designDialog).toContainText("Changing study design will clear these fields:");
+  await expect(designDialog.getByRole("button", { name: "Change study design" })).toBeVisible();
+  await expect(designDialog).not.toContainText("Internal note");
+  await designDialog.getByRole("button", { name: "Change study design" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("Study design updated.");
+
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+  const questionType = page.getByLabel("Question type");
+  await questionType.selectOption("other");
+  await page.getByLabel("Other - specify").fill("Internal Other detail");
+  await questionType.selectOption("prognosis");
+  const otherDialog = page.getByRole("dialog");
+  await expect(otherDialog).toHaveAccessibleName("Replace the Other choice?");
+  await expect(otherDialog).toContainText("Replacing the Other choice will remove its custom detail:");
+  await expect(otherDialog.getByRole("button", { name: "Replace choice" })).toBeVisible();
+  await expect(otherDialog).not.toContainText("Internal Other detail");
+  await otherDialog.getByRole("button", { name: "Replace choice" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("Other choice replaced.");
+});
+
+test("uses Thai confirmation copy and completion announcements without raw values", async ({ page }) => {
+  await page.goto("/");
+  await page.locator("#researchType").selectOption("prediction");
+  await page.locator("#studyDesign").selectOption("prediction-external-validation");
+  await page.evaluate(() => window.__TEST_ONLY__.setFieldValue("externalValidation", "รายละเอียดภายใน"));
+
+  await page.locator("#studyDesign").selectOption("prediction-development");
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toHaveAccessibleName("เปลี่ยนรูปแบบการศึกษา?");
+  await expect(dialog).toContainText("การเปลี่ยนรูปแบบการศึกษาจะล้างข้อมูลต่อไปนี้:");
+  await dialog.getByRole("button", { name: "เปลี่ยนรูปแบบการศึกษา" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("อัปเดตรูปแบบการศึกษาแล้ว");
+  await expect(page.locator("#appStatus")).not.toContainText("รายละเอียดภายใน");
+
+  await page.goto("/");
+  const questionType = page.getByLabel(/ประเภทคำถามวิจัย/i);
+  await questionType.selectOption("other");
+  await page.getByLabel(/อื่น ๆ โปรดระบุ/i).fill("รายละเอียดภายใน");
+  await questionType.selectOption("prognosis");
+  const otherDialog = page.getByRole("dialog");
+  await expect(otherDialog).toHaveAccessibleName("แทนที่ตัวเลือกอื่น?");
+  await expect(otherDialog).toContainText("การแทนที่ตัวเลือกอื่นจะลบรายละเอียดที่ระบุไว้:");
+  await otherDialog.getByRole("button", { name: "แทนที่ตัวเลือก" }).click();
+  await expect(page.locator("#appStatus")).toHaveText("แทนที่ตัวเลือกอื่นแล้ว");
+  await expect(page.locator("#appStatus")).not.toContainText("รายละเอียดภายใน");
+});
+
+test("renders named validation actions that focus simple and collapsed Advanced controls", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("interface-language").selectOption("en");
+
+  const summary = page.getByTestId("validation-summary");
+  await expect(summary).toContainText("Complete: Question type");
+  await page.getByRole("button", { name: "Go to Question type" }).click();
+  await expect(page.getByLabel("Question type")).toBeFocused();
+
+  const advanced = page.getByRole("button", { name: "Advanced details" });
+  await expect(advanced).toHaveAttribute("aria-expanded", "false");
+  await expect(summary).toContainText("Complete: Problem statement");
+  await page.getByRole("button", { name: "Go to Problem statement" }).click();
+  await expect(advanced).toHaveAttribute("aria-expanded", "true");
+  await expect(page.getByLabel("Problem statement")).toBeFocused();
+});
+
+test("localizes blocked lifecycle reasons and distinguishes neutral help from invalid help", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel(/โหมดหลักฐาน/i).selectOption("uploaded");
+  const status = page.locator('[data-action="stage"][data-stage-id="define-question"] [data-stage-status]');
+  await expect(status).toContainText("ยังไม่ได้ยืนยันการลบข้อมูลระบุตัวตน");
+  await expect(status).not.toContainText("deidentification-unconfirmed");
+
+  await page.getByRole("button", { name: /รายละเอียดขั้นสูง/i }).click();
+  const invalidHelp = page.locator("#field-topic-help");
+  const neutralHelp = page.locator("#field-problemStatement-help");
+  expect(await invalidHelp.evaluate(node => getComputedStyle(node).color))
+    .not.toBe(await neutralHelp.evaluate(node => getComputedStyle(node).color));
 });
 
 test("checkbox Other cancellation restores its trigger and confirmation preserves unrelated custom text", async ({ page }) => {
@@ -1092,7 +1181,7 @@ test("checkbox Other cancellation restores its trigger and confirmation preserve
   await expect(page.locator('[data-other-for="informationSources"]')).toHaveValue("Cochrane Library");
 
   await otherSource.uncheck();
-  await page.getByRole("button", { name: "Confirm" }).click();
+  await page.getByRole("button", { name: "Replace choice" }).click();
   await expect(otherSource).not.toBeChecked();
   await expect(medline).toBeChecked();
   await expect(page.locator('[data-other-for="informationSources"]')).toHaveCount(0);

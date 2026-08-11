@@ -42,20 +42,32 @@ describe("localized copy", () => {
     expect(t("th", `stages.${stageId}`)).toBe(thai);
   });
 
-  it("uses stage-specific bilingual confirmation copy", () => {
-    expect(t("en", "stageConfirmText")).toBe("Changing research stage will clear these fields:");
-    expect(t("th", "stageConfirmText")).toBe("การเปลี่ยนขั้นตอนการวิจัยจะล้างข้อมูลต่อไปนี้:");
+  it("uses authored bilingual confirmation and completion copy for every transition kind", () => {
+    const kinds = ["researchType", "studyDesign", "other", "stage", "targetOutput", "evidenceMode", "reset"];
+    for (const locale of ["th", "en"]) {
+      for (const kind of kinds) {
+        expect(t(locale, `confirmation.${kind}.title`), `${locale} ${kind} title`).not.toBe(`confirmation.${kind}.title`);
+        expect(t(locale, `confirmation.${kind}.body`), `${locale} ${kind} body`).not.toBe(`confirmation.${kind}.body`);
+        expect(t(locale, `confirmation.${kind}.action`), `${locale} ${kind} action`).not.toBe(`confirmation.${kind}.action`);
+      }
+    }
+    expect(t("en", "confirmation.studyDesign.body")).toContain("study design");
+    expect(t("en", "confirmation.other.body")).toContain("Other choice");
+    expect(t("th", "status.transition.studyDesign")).not.toBe("status.transition.studyDesign");
+    expect(t("en", "status.transition.other")).toBe("Other choice replaced.");
   });
 
   it("localizes actionable readiness and adaptive validation messages", () => {
     expect(t("th", "stageNotStarted")).toBe("ยังไม่เริ่ม");
     expect(t("en", "stageRemaining", { count: 2 })).toBe("2 required items remaining");
-    expect(t("th", "stageBlocked", { reason: "deidentification-unconfirmed" }))
-      .toBe("ถูกระงับ: deidentification-unconfirmed");
+    expect(t("th", "blockerReasons.deidentification-unconfirmed"))
+      .toBe("ยังไม่ได้ยืนยันการลบข้อมูลระบุตัวตน");
+    expect(t("en", "blockerReasons.deidentification-unconfirmed"))
+      .toBe("De-identification has not been confirmed");
     expect(t("en", "validation.validationStaleOption"))
       .toBe("A previous choice is incompatible with the current setup. Choose a replacement.");
-    expect(t("th", "validation.validationOtherRequired"))
-      .toBe("กรุณาระบุรายละเอียดสำหรับตัวเลือกอื่น");
+    expect(t("th", "validation.validationOtherRequired", { field: "ประเภทคำถามวิจัย" }))
+      .toBe("ระบุรายละเอียดสำหรับตัวเลือกอื่นของ ประเภทคำถามวิจัย");
     expect(t("en", "validation.validationDraftError"))
       .toBe("The draft could not be refreshed; the previous text is preserved.");
   });

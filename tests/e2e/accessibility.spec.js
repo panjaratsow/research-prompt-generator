@@ -35,8 +35,14 @@ test("has no automatically detectable WCAG A or AA violations in localized page 
   await expect(page.getByRole("button", { name: "Research profile" })).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("button", { name: "Advanced details" })).toHaveAttribute("aria-expanded", "true");
   const sources = page.getByRole("group", { name: /Information sources/ });
+  await expect(sources).toHaveAccessibleDescription(/required.*select at least one/i);
   await expect(sources.getByRole("checkbox", { name: "Other - specify" })).toBeChecked();
   await expect(page.locator('[data-other-for="informationSources"]')).toHaveValue("ThaiJO");
+  await expectNoAxeViolations(page);
+
+  await page.locator('[data-action="stage"][data-stage-id="synthesize-information"]').click();
+  const limitations = page.getByRole("group", { name: /Main limitations/ });
+  await expect(limitations).toHaveAccessibleDescription(/required.*select at least one/i);
   await expectNoAxeViolations(page);
 
   await page.locator('[data-action="stage"][data-stage-id="define-question"]').click();

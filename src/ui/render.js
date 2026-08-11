@@ -34,18 +34,48 @@ function standardList(standards, locale) {
   ])));
 }
 
-export function focusFirstBlockingIssue(preflight) {
-  for (const issue of preflight.blocking) {
-    const byId = issue.fieldId ? document.getElementById(issue.fieldId) : null;
-    const byField = issue.fieldId ? findFieldControl(document, issue.fieldId) : null;
-    const bySource = issue.sourceId ? document.querySelector(`[data-testid="source-${issue.sourceId}"]`) : null;
-    const control = byId ?? byField ?? bySource;
-    if (control && !control.disabled) {
-      control.focus();
-      return true;
-    }
+export function resolveIssueControl(root, issue) {
+  const byId = issue.fieldId ? root.getElementById(issue.fieldId) : null;
+  const byField = issue.fieldId ? findFieldControl(root, issue.fieldId) : null;
+  const control = byId ?? byField;
+  if (!control || control.disabled) return null;
+  return { control, advanced: Boolean(control.closest(".advanced-fields[hidden]")) };
+}
+
+export function focusFirstBlockingIssue(root, preflight, focusIssue) {
+  const issue = preflight.blocking.find(candidate => resolveIssueControl(root, candidate));
+  return issue ? focusIssue(issue) : false;
+}
+
+function localizedIssueField(locale, fieldId) {
+  if (!fieldId) return "";
+  const fieldKey = `fields.${fieldId}`;
+  const fieldLabel = t(locale, fieldKey);
+  if (fieldLabel !== fieldKey) return fieldLabel;
+  const setupLabels = {
+    researchTypeId: "researchType",
+    stageId: "lifecycle",
+    evidenceDeidentified: "evidence.confirmLabel",
+    evidenceInput: "evidence.addFiles",
+    evidenceBudget: "evidence.budget",
+  };
+  return setupLabels[fieldId] ? t(locale, setupLabels[fieldId]) : "";
+}
+
+function renderIssue(root, issue, locale) {
+  const field = localizedIssueField(locale, issue.fieldId);
+  const text = t(locale, issue.messageKey, { field });
+  const resolution = resolveIssueControl(root, issue);
+  const children = [element("span", { textContent: text })];
+  if (field && resolution) {
+    children.push(element("button", {
+      type: "button",
+      className: "validation-focus",
+      textContent: t(locale, "validation.focusField", { field }),
+      dataset: { action: "focus-validation-issue", issueCode: issue.code, fieldId: issue.fieldId },
+    }));
   }
-  return false;
+  return element("li", { className: "validation-issue" }, children);
 }
 
 export function renderValidation(root, preflight, locale) {
@@ -56,11 +86,11 @@ export function renderValidation(root, preflight, locale) {
   summary.replaceChildren(
     element("section", { dataset: { testid: "preflight-blockers" } }, [
       element("h3", { textContent: t(locale, "validationHeading") }),
-      blockers.length ? element("ul", { className: "validation-list" }, blockers.map(issue => element("li", { textContent: t(locale, issue.messageKey) }))) : element("p", { className: "empty-note", textContent: t(locale, "noIssues") }),
+      blockers.length ? element("ul", { className: "validation-list" }, blockers.map(issue => renderIssue(root, issue, locale))) : element("p", { className: "empty-note", textContent: t(locale, "noIssues") }),
     ]),
     element("section", { className: "validation-warnings", dataset: { testid: "preflight-warnings" } }, [
       element("h3", { textContent: t(locale, "warningsHeading") }),
-      warnings.length ? element("ul", { className: "warning-list" }, warnings.map(issue => element("li", { textContent: t(locale, issue.messageKey) }))) : element("p", { className: "empty-note", textContent: "-" }),
+      warnings.length ? element("ul", { className: "warning-list" }, warnings.map(issue => renderIssue(root, issue, locale))) : element("p", { className: "empty-note", textContent: "-" }),
     ])
   );
 }
@@ -81,7 +111,7 @@ function readinessStatusKey(readiness) {
 function readinessLabel(locale, readiness) {
   return t(locale, readinessStatusKey(readiness), {
     count: readiness.remaining,
-    reason: readiness.reasonCode,
+    reason: t(locale, `blockerReasons.${readiness.reasonCode || "unknown"}`),
   });
 }
 
@@ -171,15 +201,26 @@ export function renderWorkspace(root, state, preflight) {
   if (state.promptDrawer !== "open") root.querySelector("#promptDrawerRoot").replaceChildren(element("div", { className: "drawer-placeholder", textContent: t(locale, "promptPlaceholder") }));
 }
 
-export function renderConfirmation(root, labels, locale, kind = "transition") {
+const CONFIRMATION_KIND_KEYS = {
+  "research-type": "researchType",
+  "study-design": "studyDesign",
+  other: "other",
+  stage: "stage",
+  "target-output": "targetOutput",
+  "evidence-mode": "evidenceMode",
+  reset: "reset",
+};
+
+export function confirmationKindKey(kind) { return CONFIRMATION_KIND_KEYS[kind] ?? "researchType"; }
+
+export function renderConfirmation(root, labels, locale, kind = "research-type") {
   const dialogRoot = root.querySelector("#dialogRoot");
   const cancel = element("button", { type: "button", className: "secondary-button", dataset: { action: "cancel-confirmation" }, textContent: t(locale, "cancel") });
-  const clearingEvidence = kind === "evidence-mode";
-  const resetting = kind === "reset";
-  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: clearingEvidence ? t(locale, "evidence.clearConfirm") : resetting ? t(locale, "resetConfirm") : t(locale, "confirm") });
+  const confirmation = `confirmation.${confirmationKindKey(kind)}`;
+  const confirm = element("button", { type: "button", className: "primary-button", dataset: { action: "confirm-confirmation" }, textContent: t(locale, `${confirmation}.action`) });
   dialogRoot.replaceChildren(element("div", { className: "dialog-backdrop" }, [element("section", { className: "dialog", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirmTitle" }, [
-    element("h2", { id: "confirmTitle", textContent: clearingEvidence ? t(locale, "evidence.clearTitle") : resetting ? t(locale, "resetConfirmTitle") : t(locale, "confirmTitle") }),
-    element("p", { textContent: clearingEvidence ? t(locale, "evidence.clearText") : resetting ? t(locale, "resetConfirmText") : t(locale, kind === "stage" ? "stageConfirmText" : "confirmText") }),
+    element("h2", { id: "confirmTitle", textContent: t(locale, `${confirmation}.title`) }),
+    element("p", { textContent: t(locale, `${confirmation}.body`) }),
     ...(labels.length ? [element("ul", {}, labels.map(label => element("li", { textContent: label })))] : []),
     element("div", { className: "dialog-actions" }, [cancel, confirm]),
   ])]));

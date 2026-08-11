@@ -9,7 +9,7 @@ import { readFieldInputValue } from "./src/field-values.js";
 import { buildPrompt, buildQualityChecklist } from "./src/prompt-engine.js";
 import { validateState } from "./src/validation.js";
 import { t } from "./src/i18n.js";
-import { clearConfirmation, focusFirstBlockingIssue, renderConfirmation, renderValidation, renderWorkspace, updateLifecycleReadiness } from "./src/ui/render.js";
+import { clearConfirmation, confirmationKindKey, focusFirstBlockingIssue, renderConfirmation, renderValidation, renderWorkspace, resolveIssueControl, updateLifecycleReadiness } from "./src/ui/render.js";
 import { PARSER_DEPENDENCIES } from "./src/evidence/browser-adapters.js";
 import { createSourceRecord, mergeSourceUpdates, renumberSources } from "./src/evidence/core.js";
 import { ingestFiles, renderEvidenceWorkspace } from "./src/ui/evidence-workspace.js";
@@ -71,6 +71,19 @@ function updateDeidentificationConfirmation(confirmed) {
 }
 function restoreTrigger(transition) { root.querySelector(transition.restoreSelector)?.focus(); }
 
+function focusValidationIssue(issue) {
+  const resolution = resolveIssueControl(root, issue);
+  if (!resolution) return false;
+  if (resolution.advanced) {
+    update(setAdvancedOpen(state, state.stageId, true), "focus-validation-issue");
+    const revealed = resolveIssueControl(root, issue);
+    revealed?.control.focus();
+    return Boolean(revealed);
+  }
+  resolution.control.focus();
+  return true;
+}
+
 function affectedFieldIds(analysis) {
   return [...new Set([...analysis.fieldIds, ...Object.keys(analysis.optionIdsByField ?? {})])];
 }
@@ -119,6 +132,8 @@ function confirmTransition() {
   if (transition.kind === "reset") {
     document.documentElement.lang = state.interfaceLocale;
     announce(t(state.interfaceLocale, "status.reset"));
+  } else {
+    announce(t(state.interfaceLocale, `status.transition.${confirmationKindKey(transition.kind)}`));
   }
 }
 
@@ -366,11 +381,18 @@ function handleDelegatedInteraction(event) {
   }
   if (action === "cancel-confirmation") { cancelConfirmation(); return; }
   if (action === "confirm-confirmation") { confirmTransition(); return; }
+  if (action === "focus-validation-issue") {
+    const preflight = validateState(state);
+    const issue = [...preflight.blocking, ...preflight.warnings]
+      .find(candidate => candidate.code === trigger.dataset.issueCode && candidate.fieldId === trigger.dataset.fieldId);
+    if (issue) focusValidationIssue(issue);
+    return;
+  }
   if (action === "stage") { requestStage(trigger.dataset.stageId); return; }
   if (action === "generate-prompt") {
     const preflight = validateState(state);
     if (preflight.blocking.length) {
-      focusFirstBlockingIssue(preflight);
+      focusFirstBlockingIssue(root, preflight, focusValidationIssue);
       announce(t(state.interfaceLocale, "status.preflightBlocked", { count: preflight.blocking.length }));
       return;
     }
