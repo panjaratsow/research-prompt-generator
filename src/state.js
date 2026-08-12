@@ -2,10 +2,14 @@ import {
   RESEARCH_TYPE_IDS,
   STAGE_IDS,
   STAGE_TARGET_OUTPUTS,
-  getAdaptiveFieldIds,
+  DERIVED_FIELD_BY_STAGE,
+  getCompatibleFieldIds,
+  getFieldDefinition,
   getResearchType,
   getStudyDesign,
 } from "./catalog/index.js";
+import { syncDrafts as syncComposedDrafts } from "./draft-composer.js";
+import { getOtherText, getStaleOptionIds, hasMeaningfulValue, normalizeFieldValue } from "./field-values.js";
 
 export const RESEARCHER_ROLES = Object.freeze([
   "postgraduate-student", "research-fellow", "faculty-researcher",
@@ -18,6 +22,15 @@ export const TARGET_OUTPUTS = Object.freeze([
   "methodology-outline", "research-proposal",
 ]);
 export const CITATION_STYLES = Object.freeze(["Vancouver", "AMA", "APA 7", "None"]);
+export const TARGET_OUTPUT_STAGES = Object.freeze({
+  "research-question": "define-question",
+  "literature-review-strategy": "literature-review",
+  "evidence-synthesis": "synthesize-information",
+  "research-gap-analysis": "identify-gaps",
+  "hypotheses-propositions": "generate-hypotheses",
+  "methodology-outline": "outline-methodology",
+  "research-proposal": "write-proposal",
+});
 
 const INTERFACE_LOCALES = ["th", "en"];
 const EVIDENCE_MODES = ["uploaded", "web-research", "planning"];
@@ -39,27 +52,16 @@ function assertEnum(value, values) {
   if (!values.includes(value)) throw new RangeError(`Unknown value: ${value}`);
 }
 
-function filterCompatibleFields(fields, typeId, stageId, studyDesignId) {
-  const allowed = new Set(getAdaptiveFieldIds(typeId, stageId, studyDesignId));
-  return Object.fromEntries(Object.entries(fields).filter(([id]) => allowed.has(id)));
-}
-
-function hasMeaningfulFieldValue(value) {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (Array.isArray(value)) return value.some(hasMeaningfulFieldValue);
-  return value != null;
-}
-
 export function getIncompatiblePopulatedFieldIds(fields, allowedFieldIds) {
   const allowed = allowedFieldIds instanceof Set ? allowedFieldIds : new Set(allowedFieldIds);
   return Object.entries(fields ?? {})
-    .filter(([id, value]) => !allowed.has(id) && hasMeaningfulFieldValue(value))
+    .filter(([id, value]) => !allowed.has(id) && hasMeaningfulValue(value))
     .map(([id]) => id);
 }
 
 export function getCompatibleTargetOutputs(stageId) {
   assertEnum(stageId, STAGE_IDS);
-  return ["stage-appropriate-deliverable", STAGE_TARGET_OUTPUTS[stageId]];
+  return TARGET_OUTPUTS;
 }
 
 export function resolveTargetOutput(stageId, targetOutput) {
@@ -70,6 +72,33 @@ export function resolveTargetOutput(stageId, targetOutput) {
 
 function cloneFieldValue(value) {
   return Array.isArray(value) ? [...value] : value;
+}
+
+function createDrafts() {
+  return Object.fromEntries(Object.values(DERIVED_FIELD_BY_STAGE).map(fieldId => [fieldId, {
+    suggested: "", value: "", customized: false, error: "",
+  }]));
+}
+
+function contextFor(state, overrides = {}) {
+  return {
+    researchTypeId: state.researchTypeId,
+    studyDesignId: state.studyDesignId,
+    stageId: state.stageId,
+    evidenceMode: state.evidenceMode,
+    fields: state.fields,
+    ...overrides,
+  };
+}
+
+function transitionResult(state, nextContext, confirmed, analysis) {
+  const needsConfirmation = analysis.fieldIds.length > 0 || Object.keys(analysis.optionIdsByField).length > 0;
+  return {
+    state: confirmed || !needsConfirmation ? syncDrafts(applyContextTransition(state, nextContext, analysis)) : state,
+    needsConfirmation: !confirmed && needsConfirmation,
+    analysis,
+    incompatible: analysis.fieldIds,
+  };
 }
 
 function cloneSource(source) {
@@ -98,77 +127,176 @@ export function createInitialState() {
     evidenceBudget: 60000,
     deidentificationConfirmed: false,
     fields: {},
+    fieldCustomValues: {},
+    drafts: createDrafts(),
+    advancedOpenByStage: Object.fromEntries(STAGE_IDS.map(stageId => [stageId, false])),
+    researchProfileOpen: false,
     sources: [],
     promptDrawer: "closed",
   };
 }
 
 export function setField(state, fieldId, value) {
-  return { ...state, fields: { ...state.fields, [fieldId]: cloneFieldValue(value) } };
+  const field = getFieldDefinition(fieldId);
+  if (!field) throw new RangeError(`Unknown field: ${fieldId}`);
+  if (field.readOnly) throw new RangeError(`${fieldId} is read-only`);
+  const normalized = normalizeFieldValue(field, value);
+  if (state.drafts?.[fieldId]) return setDraftValue(state, fieldId, normalized);
+  return syncDrafts({ ...state, fields: { ...state.fields, [fieldId]: normalized } });
+}
+
+export function setFieldCustomValue(state, fieldId, value) {
+  if (!getFieldDefinition(fieldId)) throw new RangeError(`Unknown field: ${fieldId}`);
+  if (typeof value !== "string") throw new TypeError(`${fieldId} requires a string`);
+  return syncDrafts({ ...state, fieldCustomValues: { ...state.fieldCustomValues, [fieldId]: value.trim() } });
+}
+
+export function setAdvancedOpen(state, stageId, open) {
+  assertEnum(stageId, STAGE_IDS);
+  return { ...state, advancedOpenByStage: { ...state.advancedOpenByStage, [stageId]: Boolean(open) } };
+}
+
+export function setResearchProfileOpen(state, open) {
+  return { ...state, researchProfileOpen: Boolean(open) };
 }
 
 export function setSetupField(state, fieldId, value) {
   if (!SETUP_FIELDS.has(fieldId)) throw new RangeError(`Unknown setup field: ${fieldId}`);
   if (SETUP_ENUMS[fieldId]) assertEnum(value, SETUP_ENUMS[fieldId]);
-  if (fieldId === "targetOutput" && !getCompatibleTargetOutputs(state.stageId).includes(value)) {
-    throw new RangeError(`Target output ${value} is incompatible with stage ${state.stageId}`);
-  }
+  if (fieldId === "targetOutput") return setTargetOutput(state, value);
   return { ...state, [fieldId]: value };
 }
 
-export function setStudyDesign(state, studyDesignId) {
+export function setStudyDesign(state, studyDesignId, confirmed = false, analysis) {
   if (!getStudyDesign(state.researchTypeId, studyDesignId)) {
     throw new RangeError(`Unknown study design for ${state.researchTypeId}: ${studyDesignId}`);
   }
-  return {
-    ...state,
-    studyDesignId,
-    fields: filterCompatibleFields(state.fields, state.researchTypeId, state.stageId, studyDesignId),
-  };
+  const nextContext = contextFor(state, { studyDesignId });
+  return transitionResult(state, nextContext, confirmed, analysis ?? analyzeContextTransition(state, nextContext));
 }
 
-export function setResearchType(state, nextTypeId, confirmed = false) {
+export function setResearchType(state, nextTypeId, confirmed = false, analysis) {
   assertEnum(nextTypeId, RESEARCH_TYPE_IDS);
   const nextType = getResearchType(nextTypeId);
-  const allowed = new Set(getAdaptiveFieldIds(nextTypeId, state.stageId, nextType.defaultStudyDesignId));
-  const incompatible = getIncompatiblePopulatedFieldIds(state.fields, allowed);
-  if (incompatible.length && !confirmed) {
-    return { state, needsConfirmation: true, incompatible };
-  }
-
-  return {
-    state: {
-      ...state,
-      researchTypeId: nextTypeId,
-      studyDesignId: nextType.defaultStudyDesignId,
-      fields: filterCompatibleFields(state.fields, nextTypeId, state.stageId, nextType.defaultStudyDesignId),
-    },
-    needsConfirmation: false,
-    incompatible,
-  };
+  const nextContext = contextFor(state, {
+    researchTypeId: nextTypeId,
+    studyDesignId: nextType.defaultStudyDesignId,
+  });
+  return transitionResult(state, nextContext, confirmed, analysis ?? analyzeContextTransition(state, nextContext));
 }
 
 export function setStage(state, nextStageId) {
   assertEnum(nextStageId, STAGE_IDS);
-  const compatibleTargetOutputs = getCompatibleTargetOutputs(nextStageId);
   return {
     ...state,
     stageId: nextStageId,
-    targetOutput: compatibleTargetOutputs.includes(state.targetOutput)
-      ? state.targetOutput
-      : "stage-appropriate-deliverable",
-    fields: filterCompatibleFields(state.fields, state.researchTypeId, nextStageId, state.studyDesignId),
+    targetOutput: "stage-appropriate-deliverable",
+  };
+}
+
+export function setTargetOutput(state, targetOutput) {
+  assertEnum(targetOutput, TARGET_OUTPUTS);
+  if (targetOutput === "stage-appropriate-deliverable") return syncDrafts({ ...state, targetOutput });
+  return syncDrafts({ ...state, targetOutput, stageId: TARGET_OUTPUT_STAGES[targetOutput] });
+}
+
+export function analyzeContextTransition(state, nextContext) {
+  const next = contextFor(state, nextContext);
+  const compatibleIds = new Set(getCompatibleFieldIds(next));
+  const fieldIds = [];
+  const optionIdsByField = {};
+  const fieldIdsWithValues = new Set([...Object.keys(state.fields ?? {}), ...Object.keys(state.fieldCustomValues ?? {})]);
+
+  for (const fieldId of fieldIdsWithValues) {
+    const field = getFieldDefinition(fieldId);
+    const value = state.fields?.[fieldId];
+    const customValue = getOtherText(state, fieldId);
+    if (!field || !compatibleIds.has(fieldId)) {
+      if (hasMeaningfulValue(value) || Boolean(customValue.trim())) fieldIds.push(fieldId);
+      continue;
+    }
+    const staleOptionIds = getStaleOptionIds(state, field, next);
+    if (staleOptionIds.length) optionIdsByField[fieldId] = staleOptionIds;
+  }
+  return { fieldIds, optionIdsByField };
+}
+
+export function applyContextTransition(state, nextContext, analysis) {
+  const next = contextFor(state, nextContext);
+  const nextFields = { ...state.fields };
+  const nextCustomValues = { ...state.fieldCustomValues };
+  const clearedFields = new Set(analysis.fieldIds);
+
+  for (const fieldId of clearedFields) {
+    delete nextFields[fieldId];
+    delete nextCustomValues[fieldId];
+  }
+  for (const [fieldId, staleOptionIds] of Object.entries(analysis.optionIdsByField)) {
+    if (clearedFields.has(fieldId)) continue;
+    const value = nextFields[fieldId];
+    const stale = new Set(staleOptionIds);
+    if (Array.isArray(value)) {
+      const remaining = value.filter(optionId => !stale.has(optionId));
+      if (remaining.length) nextFields[fieldId] = remaining;
+      else delete nextFields[fieldId];
+      if (!remaining.includes("other")) delete nextCustomValues[fieldId];
+    } else if (stale.has(value)) {
+      delete nextFields[fieldId];
+      delete nextCustomValues[fieldId];
+    }
+  }
+  return {
+    ...state,
+    researchTypeId: next.researchTypeId,
+    studyDesignId: next.studyDesignId,
+    stageId: next.stageId,
+    evidenceMode: next.evidenceMode,
+    fields: nextFields,
+    fieldCustomValues: nextCustomValues,
   };
 }
 
 export function setInterfaceLocale(state, locale) {
   assertEnum(locale, INTERFACE_LOCALES);
-  return { ...state, interfaceLocale: locale };
+  return syncDrafts({ ...state, interfaceLocale: locale }, locale, "locale");
 }
 
-export function setEvidenceMode(state, mode) {
+export function syncDrafts(state, locale = state.interfaceLocale, mode = "structured") {
+  return syncComposedDrafts(state, locale, mode);
+}
+
+export function setDraftValue(state, draftId, value) {
+  const previous = state.drafts?.[draftId];
+  if (!previous) throw new RangeError(`Unknown draft: ${draftId}`);
+  if (typeof value !== "string") throw new TypeError(`${draftId} requires a string`);
+  return syncDrafts({
+    ...state,
+    drafts: {
+      ...state.drafts,
+      [draftId]: { ...previous, value, customized: value !== previous.suggested },
+    },
+    fields: { ...state.fields, [draftId]: value },
+  });
+}
+
+export function restoreDraft(state, draftId, locale = state.interfaceLocale) {
+  const current = syncDrafts(state, locale);
+  const previous = current.drafts?.[draftId];
+  if (!previous) throw new RangeError(`Unknown draft: ${draftId}`);
+  return syncDrafts({
+    ...current,
+    drafts: {
+      ...current.drafts,
+      [draftId]: { ...previous, value: previous.suggested, customized: false, error: "" },
+    },
+    fields: { ...current.fields, [draftId]: previous.suggested },
+  }, locale);
+}
+
+export function setEvidenceMode(state, mode, confirmed = false, analysis) {
   assertEnum(mode, EVIDENCE_MODES);
-  return { ...state, evidenceMode: mode };
+  const nextContext = contextFor(state, { evidenceMode: mode });
+  return transitionResult(state, nextContext, confirmed, analysis ?? analyzeContextTransition(state, nextContext));
 }
 
 export function setOutputLanguage(state, language) {
@@ -198,6 +326,9 @@ export function createPublicWorkspaceState(state) {
   return {
     ...state,
     fields: Object.fromEntries(Object.entries(state.fields ?? {}).map(([id, value]) => [id, cloneFieldValue(value)])),
+    fieldCustomValues: { ...state.fieldCustomValues },
+    drafts: Object.fromEntries(Object.entries(state.drafts ?? {}).map(([id, draft]) => [id, { ...draft }])),
+    advancedOpenByStage: { ...state.advancedOpenByStage },
     sources: Array.from(state.sources ?? [], source => ({
       id: source.id ?? "",
       filename: source.filename ?? "",

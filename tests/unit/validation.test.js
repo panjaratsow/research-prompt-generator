@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createInitialState, setField } from "../../src/state.js";
-import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
+import { createInitialState, setDraftValue, setField } from "../../src/state.js";
+import { LIFECYCLE_STAGES, getStageFieldDefinitions } from "../../src/catalog/index.js";
 import {
   getRequiredFieldIds,
   validateState,
@@ -18,11 +18,20 @@ function withFields(state, fields) {
   );
 }
 
+function completeDefineQuestionState() {
+  return withFields(createInitialState(), {
+    topic: "Cardiac remodelling",
+    population: "Adults with heart failure",
+    questionType: "prognosis",
+    primaryOutcome: "Hospital admission",
+  });
+}
+
 describe("preflight validation", () => {
   it("blocks an incomplete planning prompt", () => {
     const result = validateState(createInitialState());
     expect(result.blocking.map(issue => issue.code)).toEqual(
-      expect.arrayContaining(["missing-topic", "missing-question"])
+      expect.arrayContaining(["missing-topic", "missing-questionType", "missing-primaryOutcome"])
     );
   });
 
@@ -34,11 +43,24 @@ describe("preflight validation", () => {
     );
   });
 
-  it("marks define-question stage ready when critical fields are present", () => {
-    let state = setField(createInitialState(), "topic", "Postpartum haemorrhage");
-    state = setField(state, "population", "Women giving birth in Thai referral hospitals");
-    state = setField(state, "researchQuestion", "Which modifiable factors predict severe postpartum haemorrhage?");
-    expect(validateState(state).readinessByStage["define-question"]).toBe("ready");
+  it("reports actionable readiness for required simple fields", () => {
+    const empty = validateState(createInitialState()).readinessByStage["define-question"];
+    expect(empty).toEqual({
+      status: "not-started",
+      remaining: 5,
+      missingFieldIds: ["topic", "population", "questionType", "primaryOutcome", "researchQuestion"],
+      reasonCode: "",
+    });
+
+    const partialState = setField(createInitialState(), "topic", "Cardiac remodelling");
+    expect(validateState(partialState).readinessByStage["define-question"]).toMatchObject({
+      status: "remaining",
+      remaining: 3,
+    });
+
+    const notSureState = setField(partialState, "questionType", "not-sure");
+    expect(validateState(notSureState).readinessByStage["define-question"].missingFieldIds)
+      .not.toContain("questionType");
   });
 
   it("marks every stage blocked for invalid type, stage, and uploaded global blockers", () => {
@@ -52,8 +74,10 @@ describe("preflight validation", () => {
     const uploaded = validateState({ ...state, evidenceMode: "uploaded" });
 
     for (const result of [invalidType, invalidStage, uploaded]) {
-      expect(Object.values(result.readinessByStage)).not.toContain("ready");
-      expect(Object.values(result.readinessByStage)).toContain("blocked");
+      expect(Object.values(result.readinessByStage).map(readiness => readiness.status))
+        .not.toContain("ready");
+      expect(Object.values(result.readinessByStage).map(readiness => readiness.status))
+        .toContain("blocked");
     }
   });
 
@@ -85,72 +109,235 @@ describe("preflight validation", () => {
     });
   });
 
-  it("defines required fields for every lifecycle stage", () => {
-    expect(getRequiredFieldIds("observational", "define-question")).toEqual(["topic", "population", "researchQuestion"]);
-    expect(getRequiredFieldIds("observational", "literature-review")).toEqual(["topic", "researchQuestion", "informationSources", "searchStrategy"]);
-    expect(getRequiredFieldIds("observational", "synthesize-information")).toEqual(["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"]);
-    expect(getRequiredFieldIds("observational", "identify-gaps")).toEqual(["topic", "researchQuestion", "researchGaps"]);
-    expect(getRequiredFieldIds("observational", "generate-hypotheses")).toEqual(["topic", "researchQuestion", "hypotheses"]);
-    expect(getRequiredFieldIds("observational", "outline-methodology")).toEqual(["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"]);
-    expect(getRequiredFieldIds("observational", "write-proposal")).toEqual(["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"]);
+  it("reads required field IDs from the stage catalogue", () => {
+    expect(getRequiredFieldIds("observational", "define-question", "cohort", "planning", {}))
+      .toEqual(["topic", "population", "questionType", "primaryOutcome", "researchQuestion"]);
+    expect(getRequiredFieldIds("observational", "literature-review", "cohort", "planning", {}))
+      .toEqual(["informationSources", "dateCoverage", "evidenceTypes", "searchConcepts", "searchStrategy"]);
+    expect(getRequiredFieldIds("observational", "outline-methodology", "cohort", "planning", {}))
+      .toEqual(["confirmedDesign", "dataSourceRecruitment", "samplingApproach", "analysisFamily", "feasibilityPeriod", "methodologyOutline"]);
   });
 
-  it("derives readiness and warnings from the approved lifecycle boundaries", () => {
-    const state = { ...createInitialState(), stageId: "outline-methodology" };
-    const result = validateState(state);
-    expect(Object.keys(result.readinessByStage)).toEqual(LIFECYCLE_STAGES.map(stage => stage.id));
-    expect(result.warnings.map(issue => issue.code)).toEqual(expect.arrayContaining(["missing-feasibility", "missing-registration", "missing-ethics", "missing-data-sharing"]));
+  it("routes contextual methodology and proposal issues to active compact fields", () => {
+    const methodologyState = { ...createInitialState(), stageId: "outline-methodology" };
+    const methodology = validateState(methodologyState);
+    const activeMethodologyIds = getStageFieldDefinitions(methodologyState)
+      .simple.concat(getStageFieldDefinitions(methodologyState).advanced)
+      .map(field => field.id);
+
+    expect(Object.keys(methodology.readinessByStage)).toEqual(LIFECYCLE_STAGES.map(stage => stage.id));
+    expect(methodology.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-feasibility", fieldId: "feasibilityPeriod",
+    }));
+    expect(methodology.warnings).toContainEqual(expect.objectContaining({
+      code: "missing-ethics", fieldId: "ethicsGovernance",
+    }));
+    expect(activeMethodologyIds).toEqual(expect.arrayContaining(["feasibilityPeriod", "ethicsGovernance"]));
+    expect(methodology.warnings.map(issue => issue.code)).not.toEqual(expect.arrayContaining([
+      "missing-registration", "missing-data-sharing", "missing-external-validation",
+    ]));
+
+    const proposalState = {
+      ...createInitialState(),
+      researchTypeId: "prediction",
+      studyDesignId: "prediction-external-validation",
+      stageId: "write-proposal",
+    };
+    const proposal = validateState(proposalState);
+    const activeProposalIds = getStageFieldDefinitions(proposalState)
+      .simple.concat(getStageFieldDefinitions(proposalState).advanced)
+      .map(field => field.id);
+
+    expect(proposal.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-feasibility", fieldId: "proposalTimeline",
+    }));
+    expect(proposal.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "missing-registration", fieldId: "registration" }),
+      expect.objectContaining({ code: "missing-data-sharing", fieldId: "dataSharingPlan" }),
+      expect.objectContaining({ code: "missing-ethics", fieldId: "detailedGovernance" }),
+    ]));
+    expect(activeProposalIds).toEqual(expect.arrayContaining([
+      "proposalTimeline", "registration", "dataSharingPlan", "detailedGovernance",
+    ]));
     expect(validateState({ ...createInitialState(), researchTypeId: "evidence-review", studyDesignId: "systematic-review", stageId: "literature-review" }).warnings)
-      .toContainEqual(expect.objectContaining({ code: "missing-registration" }));
+      .not.toContainEqual(expect.objectContaining({ code: "missing-registration" }));
   });
 
-  it("adds design-specific requirements for diagnostic, prediction, qualitative, review, and AI work", () => {
-    expect(getRequiredFieldIds("diagnostic", "define-question")).toEqual(expect.arrayContaining(["targetCondition", "indexTest", "referenceStandard"]));
-    expect(getRequiredFieldIds("prediction", "define-question")).toEqual(expect.arrayContaining(["predictors", "developmentDataset", "validationDataset"]));
-    expect(getRequiredFieldIds("qualitative-mixed", "define-question")).toEqual(expect.arrayContaining(["sample", "phenomenon", "reflexivity"]));
-    expect(getRequiredFieldIds("evidence-review", "define-question")).toEqual(expect.arrayContaining(["reviewType", "reviewQuestion", "synthesisMethod"]));
-    expect(getRequiredFieldIds("ai-health-data", "define-question")).toEqual(expect.arrayContaining(["intendedUse", "datasetProvenance", "modelInputs", "performanceMeasures"]));
-  });
-
-  it("adds context-specific readiness warnings without document text", () => {
-    const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
-      {
-        topic: "Risk model",
-        problemStatement: "Clinical risk stratification is inconsistent",
-        population: "Adults in Thai referral hospitals",
-        researchQuestion: "Can predictors estimate cardiovascular risk?",
-        primaryOutcome: "One-year cardiovascular event",
-        methodologyOutline: "Prediction model validation",
-        resourcesTimeline: "12 months",
-        predictors: "Age and blood pressure",
-        endpointTiming: "One year",
-        developmentDataset: "Registry A",
-        validationDataset: "Registry B",
-      }
-    );
+  it("keeps Other incomplete until its custom text is supplied", () => {
+    const state = setField(createInitialState(), "questionType", "other");
     const result = validateState(state);
 
-    expect(result.warnings.map(issue => issue.code)).toEqual(
-      expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
-    );
-    expect(JSON.stringify(result)).not.toContain("Clinical risk stratification is inconsistent");
+    expect(result.readinessByStage["define-question"].missingFieldIds).toContain("questionType");
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-questionType",
+      fieldId: "questionType",
+      messageKey: "validation.validationOtherRequired",
+    }));
   });
 
-  it("removes contextual warnings when their rendered controls are completed", () => {
-    const state = withFields(
-      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "outline-methodology" },
+  it("reports stale options and draft composition failures without user values", () => {
+    const staleValue = "obsolete-question-type";
+    const state = {
+      ...createInitialState(),
+      fields: { questionType: staleValue },
+      drafts: {
+        ...createInitialState().drafts,
+        researchQuestion: { suggested: "", value: "", customized: false, error: "composition-failed" },
+      },
+    };
+    const result = validateState(state);
+
+    expect(result.blocking).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "stale-field-option", fieldId: "questionType" }),
+      expect.objectContaining({ code: "draft-composition-failed", fieldId: "researchQuestion" }),
+    ]));
+    expect(JSON.stringify(result)).not.toContain(staleValue);
+  });
+
+  it("counts a stale required option as one remaining decision", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      fields: { ...complete.fields, questionType: "obsolete-question-type" },
+    };
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "blocked",
+      remaining: 1,
+      missingFieldIds: ["questionType"],
+      reasonCode: "stale-field-option",
+    });
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "stale-field-option",
+      fieldId: "questionType",
+    }));
+  });
+
+  it("counts a current design-critical draft error as one remaining decision", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      drafts: {
+        ...complete.drafts,
+        researchQuestion: { ...complete.drafts.researchQuestion, error: "composition-failed" },
+      },
+    };
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["researchQuestion"],
+      reasonCode: "",
+    });
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "draft-composition-failed",
+      fieldId: "researchQuestion",
+    }));
+    expect(result.blocking).not.toContainEqual(expect.objectContaining({
+      code: "missing-derived-draft",
+      fieldId: "researchQuestion",
+    }));
+  });
+
+  it.each(["", " \t "])("blocks an empty design-critical draft value %j", value => {
+    const state = setDraftValue(completeDefineQuestionState(), "researchQuestion", value);
+    const result = validateState(state);
+
+    expect(result.blocking).toContainEqual(expect.objectContaining({
+      code: "missing-derived-draft",
+      fieldId: "researchQuestion",
+      messageKey: "validation.missingDerivedDraft",
+    }));
+    expect(result.readinessByStage["define-question"]).toEqual({
+      status: "remaining",
+      remaining: 1,
+      missingFieldIds: ["researchQuestion"],
+      reasonCode: "",
+    });
+  });
+
+  it("globally blocks and deduplicates a stale populated option from another stage", () => {
+    const complete = completeDefineQuestionState();
+    const staleState = {
+      ...complete,
+      stageId: "synthesize-information",
+      evidenceMode: "planning",
+      fields: {
+        ...complete.fields,
+        informationSources: ["uploaded-source-set"],
+      },
+    };
+
+    const result = validateState(staleState);
+    const staleIssues = result.blocking.filter(entry => entry.code === "stale-field-option");
+
+    expect(staleIssues).toEqual([
+      expect.objectContaining({ fieldId: "informationSources" }),
+    ]);
+    expect(Object.values(result.readinessByStage).every(readiness => readiness.status === "blocked")).toBe(true);
+  });
+
+  it("counts a field only once when it is both incomplete and stale", () => {
+    const complete = completeDefineQuestionState();
+    const state = {
+      ...complete,
+      fields: { ...complete.fields, questionType: ["other", "obsolete-question-type"] },
+    };
+
+    expect(validateState(state).readinessByStage["define-question"]).toEqual({
+      status: "blocked",
+      remaining: 1,
+      missingFieldIds: ["questionType"],
+      reasonCode: "stale-field-option",
+    });
+  });
+
+  it("warns for omitted Advanced fields without blocking ordinary readiness", () => {
+    const state = completeDefineQuestionState();
+    const result = validateState(state);
+
+    expect(result.readinessByStage["define-question"].status).toBe("ready");
+    expect(result.warnings).toContainEqual(expect.objectContaining({
+      code: "missing-problemStatement",
+      fieldId: "problemStatement",
+    }));
+    expect(result.blocking).not.toContainEqual(expect.objectContaining({ fieldId: "problemStatement" }));
+  });
+
+  it("uses the first uploaded global blocker as the readiness reason", () => {
+    const readiness = validateState({ ...createInitialState(), evidenceMode: "uploaded" })
+      .readinessByStage["define-question"];
+
+    expect(readiness).toMatchObject({
+      status: "blocked",
+      reasonCode: "deidentification-unconfirmed",
+    });
+  });
+
+  it("removes contextual issues when their compact controls are completed", () => {
+    const methodology = withFields(
+      { ...createInitialState(), stageId: "outline-methodology" },
+      { feasibilityPeriod: "13-24-months", ethicsGovernance: "Institutional review will be sought before recruitment." }
+    );
+    const proposal = withFields(
+      { ...createInitialState(), researchTypeId: "prediction", studyDesignId: "prediction-external-validation", stageId: "write-proposal" },
       {
-        registration: "Registered prospectively",
-        ethicsApproval: "Local determination pending verification",
-        dataSharingPlan: "Controlled access",
-        externalValidation: "Independent hospital validation",
+        proposalTimeline: "24-months",
+        registration: "Register prospectively before enrolment.",
+        dataSharingPlan: "Use controlled access with a data-use agreement.",
+        detailedGovernance: "Document ethics, data protection, and oversight responsibilities.",
       }
     );
 
-    expect(validateState(state).warnings.map(issue => issue.code)).not.toEqual(
-      expect.arrayContaining(["missing-registration", "missing-ethics", "missing-data-sharing", "missing-external-validation"])
-    );
+    for (const state of [methodology, proposal]) {
+      const result = validateState(state);
+      const issues = [...result.blocking, ...result.warnings];
+      expect(issues.map(issue => issue.code)).not.toEqual(expect.arrayContaining([
+        "missing-feasibility", "missing-registration", "missing-ethics", "missing-data-sharing",
+      ]));
+    }
   });
 
   it("maps upload and budget blockers to focusable evidence controls", () => {

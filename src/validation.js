@@ -1,23 +1,17 @@
-import { LIFECYCLE_STAGES, getResearchType } from "./catalog/index.js";
+import {
+  LIFECYCLE_STAGES,
+  getCompatibleFieldIds,
+  getFieldDefinition,
+  getResearchType,
+  getStageFieldDefinitions,
+} from "./catalog/index.js";
 import { calculateEvidenceBudget } from "./evidence/core.js";
-
-const STAGE_REQUIRED_FIELDS = {
-  "define-question": ["topic", "population", "researchQuestion"],
-  "literature-review": ["topic", "researchQuestion", "informationSources", "searchStrategy"],
-  "synthesize-information": ["topic", "researchQuestion", "evidenceSummary", "synthesisMethod"],
-  "identify-gaps": ["topic", "researchQuestion", "researchGaps"],
-  "generate-hypotheses": ["topic", "researchQuestion", "hypotheses"],
-  "outline-methodology": ["topic", "population", "researchQuestion", "primaryOutcome", "methodologyOutline"],
-  "write-proposal": ["topic", "problemStatement", "population", "researchQuestion", "primaryOutcome", "methodologyOutline", "resourcesTimeline"],
-};
-
-const DESIGN_REQUIRED_FIELDS = {
-  diagnostic: ["targetCondition", "indexTest", "referenceStandard", "diagnosticThreshold"],
-  prediction: ["predictors", "primaryOutcome", "endpointTiming", "developmentDataset", "validationDataset"],
-  "qualitative-mixed": ["sample", "phenomenon", "qualitativeDesign", "dataCollection", "analysisApproach", "reflexivity"],
-  "evidence-review": ["reviewType", "reviewQuestion", "eligibilityCriteria", "informationSources", "synthesisMethod"],
-  "ai-health-data": ["intendedUse", "targetPopulation", "datasetProvenance", "referenceStandard", "modelInputs", "validationDataset", "performanceMeasures"],
-};
+import {
+  getFieldValue,
+  getStaleOptionIds,
+  hasMeaningfulValue,
+  isFieldComplete,
+} from "./field-values.js";
 
 const GLOBAL_BLOCKING_CODES = new Set([
   "missing-research-type",
@@ -27,61 +21,147 @@ const GLOBAL_BLOCKING_CODES = new Set([
   "selected-source-empty",
   "evidence-budget-exceeded",
   "identifiable-data-present",
+  "stale-field-option",
 ]);
 
 function issue(code, messageKey, { fieldId = "", sourceId = "" } = {}) {
   return { code, fieldId, sourceId, messageKey };
 }
 
-function hasValue(fields, fieldId) {
-  const value = fields[fieldId];
-  return typeof value === "string" ? Boolean(value.trim()) : Boolean(value);
+const DATA_SHARING_RESEARCH_TYPES = new Set(["observational", "prediction", "ai-health-data"]);
+
+function contextualIssue(state, fieldId) {
+  if (state.stageId === "outline-methodology") {
+    if (fieldId === "feasibilityPeriod") return issue("missing-feasibility", "validation.missingFeasibility", { fieldId });
+    if (fieldId === "ethicsGovernance") return issue("missing-ethics", "validation.missingEthics", { fieldId });
+  }
+  if (state.stageId === "write-proposal") {
+    if (fieldId === "proposalTimeline") return issue("missing-feasibility", "validation.missingFeasibility", { fieldId });
+    if (fieldId === "registration") return issue("missing-registration", "validation.missingRegistration", { fieldId });
+    if (fieldId === "dataSharingPlan" && DATA_SHARING_RESEARCH_TYPES.has(state.researchTypeId)) {
+      return issue("missing-data-sharing", "validation.missingDataSharing", { fieldId });
+    }
+    if (fieldId === "detailedGovernance") return issue("missing-ethics", "validation.missingEthics", { fieldId });
+  }
+  return null;
 }
 
-function requiredIssue(fieldId) {
+function requiredIssue(state, field) {
+  const value = getFieldValue(state, field.id);
+  const includesOther = (Array.isArray(value) ? value : [value]).includes("other");
+  if (includesOther) {
+    return issue(`missing-${field.id}`, "validation.validationOtherRequired", { fieldId: field.id });
+  }
+  const contextual = contextualIssue(state, field.id);
+  if (contextual) return contextual;
+  const { id: fieldId } = field;
   if (fieldId === "topic") return issue("missing-topic", "validation.missingTopic", { fieldId });
   if (fieldId === "researchQuestion") return issue("missing-question", "validation.missingQuestion", { fieldId });
   return issue(`missing-${fieldId}`, "validation.missingRequiredField", { fieldId });
 }
 
-function warningForMissingField(warnings, state, fieldId, code, messageKey) {
-  if (!hasValue(state.fields, fieldId)) warnings.push(issue(code, messageKey, { fieldId }));
+function stageContext(typeId, stageId, studyDesignId, evidenceMode, fields) {
+  return {
+    researchTypeId: typeId,
+    studyDesignId: studyDesignId ?? getResearchType(typeId)?.defaultStudyDesignId,
+    stageId,
+    evidenceMode,
+    fields: fields ?? {},
+  };
 }
 
-export function getRequiredFieldIds(typeId, stageId) {
-  const stageFields = STAGE_REQUIRED_FIELDS[stageId] ?? [];
-  const designFields = DESIGN_REQUIRED_FIELDS[typeId] ?? [];
-  return [...new Set([...stageFields, ...designFields])];
+function requiredFieldsForStage(context) {
+  return getStageFieldDefinitions(context).simple
+    .filter(field => field.required || field.designCritical);
+}
+
+export function getRequiredFieldIds(typeId, stageId, studyDesignId, evidenceMode, fields) {
+  const context = stageContext(typeId, stageId, studyDesignId, evidenceMode, fields);
+  const form = getStageFieldDefinitions(context);
+  return [
+    ...requiredFieldsForStage(context).map(field => field.id),
+    ...(form.draft && (form.draft.required || form.draft.designCritical) ? [form.draft.id] : []),
+  ];
+}
+
+function calculateStageReadiness(state, stageId, globalBlockers) {
+  const context = { ...state, stageId, fields: state.fields ?? {} };
+  const form = getStageFieldDefinitions(context);
+  const required = requiredFieldsForStage(context);
+  const missingFieldIds = new Set(required
+    .filter(field => !isFieldComplete(state, field))
+    .map(field => field.id));
+  for (const field of required) {
+    if (getStaleOptionIds(state, field, context).length) missingFieldIds.add(field.id);
+  }
+  const draft = form.draft ? state.drafts?.[form.draft.id] : undefined;
+  if (form.draft && (form.draft.required || form.draft.designCritical)
+    && (draft?.error === "composition-failed" || !hasMeaningfulValue(draft?.value))) {
+    missingFieldIds.add(form.draft.id);
+  }
+  const missingIds = [...missingFieldIds];
+  const started = required.some(field => hasMeaningfulValue(getFieldValue(state, field.id)));
+
+  if (globalBlockers.length) return {
+    status: "blocked",
+    remaining: missingIds.length,
+    missingFieldIds: missingIds,
+    reasonCode: globalBlockers[0].code,
+  };
+  if (!started) return { status: "not-started", remaining: missingIds.length, missingFieldIds: missingIds, reasonCode: "" };
+  if (missingIds.length) return { status: "remaining", remaining: missingIds.length, missingFieldIds: missingIds, reasonCode: "" };
+  return { status: "ready", remaining: 0, missingFieldIds: [], reasonCode: "" };
 }
 
 function calculateReadiness(state, blocking) {
-  const globallyBlocked = blocking.some(issue => GLOBAL_BLOCKING_CODES.has(issue.code));
-
+  const globalBlockers = blocking.filter(entry => GLOBAL_BLOCKING_CODES.has(entry.code));
   return Object.fromEntries(LIFECYCLE_STAGES.map(({ id }) => {
-    if (globallyBlocked) return [id, "blocked"];
-    const fieldsReady = getRequiredFieldIds(state.researchTypeId, id)
-      .every(fieldId => hasValue(state.fields, fieldId));
-    return [id, fieldsReady ? "ready" : "incomplete"];
+    return [id, calculateStageReadiness(state, id, globalBlockers)];
   }));
 }
 
-function addContextualWarnings(state, warnings) {
-  const { researchTypeId, stageId } = state;
-  const methodsStages = new Set(["outline-methodology", "write-proposal"]);
+function addAdaptiveFieldIssues(state, blocking, warnings) {
+  const form = getStageFieldDefinitions(state);
+  const required = requiredFieldsForStage(state);
 
-  if (methodsStages.has(stageId)) {
-    warningForMissingField(warnings, state, "resourcesTimeline", "missing-feasibility", "validation.missingFeasibility");
-    warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
-    warningForMissingField(warnings, state, "ethicsApproval", "missing-ethics", "validation.missingEthics");
-    if (["observational", "prediction", "ai-health-data"].includes(researchTypeId)) {
-      warningForMissingField(warnings, state, "dataSharingPlan", "missing-data-sharing", "validation.missingDataSharing");
-    }
-    if (["prediction-external-validation", "ai-external-validation", "ai-imaging-external-validation"].includes(state.studyDesignId)) {
-      warningForMissingField(warnings, state, "externalValidation", "missing-external-validation", "validation.missingExternalValidation");
+  for (const field of required) {
+    if (!isFieldComplete(state, field)) blocking.push(requiredIssue(state, field));
+  }
+  for (const field of form.advanced) {
+    if (isFieldComplete(state, field)) continue;
+    if (field.designCritical) blocking.push(requiredIssue(state, field));
+    else if (!contextualIssue(state, field.id)) {
+      warnings.push(issue(`missing-${field.id}`, "validation.missingRequiredField", { fieldId: field.id }));
     }
   }
-  if (researchTypeId === "evidence-review" && stageId === "literature-review") {
-    warningForMissingField(warnings, state, "registration", "missing-registration", "validation.missingRegistration");
+  if (form.draft && (form.draft.required || form.draft.designCritical)) {
+    const draft = state.drafts?.[form.draft.id];
+    if (draft?.error === "composition-failed") {
+      blocking.push(issue("draft-composition-failed", "validation.validationDraftError", { fieldId: form.draft.id }));
+    } else if (!hasMeaningfulValue(draft?.value)) {
+      blocking.push(issue("missing-derived-draft", "validation.missingDerivedDraft", { fieldId: form.draft.id }));
+    }
+  }
+}
+
+function addGlobalStaleOptionIssues(state, blocking) {
+  const compatibleFieldIds = new Set(getCompatibleFieldIds(state));
+  for (const fieldId of Object.keys(state.fields ?? {})) {
+    if (!compatibleFieldIds.has(fieldId)) continue;
+    const field = getFieldDefinition(fieldId);
+    if (getStaleOptionIds(state, field, state).length) {
+      blocking.push(issue("stale-field-option", "validation.validationStaleOption", { fieldId }));
+    }
+  }
+}
+
+function addContextualWarnings(state, warnings) {
+  const form = getStageFieldDefinitions(state);
+  for (const field of form.advanced) {
+    const contextual = contextualIssue(state, field.id);
+    if (contextual && !isFieldComplete(state, field)) {
+      warnings.push(contextual);
+    }
   }
 }
 
@@ -93,12 +173,11 @@ export function validateState(state) {
   if (!getResearchType(state.researchTypeId)) {
     blocking.push(issue("missing-research-type", "validation.missingResearchType", { fieldId: "researchTypeId" }));
   }
-  if (!STAGE_REQUIRED_FIELDS[state.stageId]) {
+  if (!LIFECYCLE_STAGES.some(stage => stage.id === state.stageId)) {
     blocking.push(issue("missing-stage", "validation.missingStage", { fieldId: "stageId" }));
   }
-  for (const fieldId of getRequiredFieldIds(state.researchTypeId, state.stageId)) {
-    if (!hasValue(fields, fieldId)) blocking.push(requiredIssue(fieldId));
-  }
+  addAdaptiveFieldIssues({ ...state, fields }, blocking, warnings);
+  addGlobalStaleOptionIssues({ ...state, fields }, blocking);
   if (state.evidenceMode === "uploaded" && !state.deidentificationConfirmed) {
     blocking.push(issue("deidentification-unconfirmed", "validation.confirmDeidentification", { fieldId: "evidenceDeidentified" }));
   }

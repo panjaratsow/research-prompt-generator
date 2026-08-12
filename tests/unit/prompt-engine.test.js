@@ -2,21 +2,41 @@ import { describe, expect, it } from "vitest";
 import {
   buildEvidenceBlock,
   buildPrompt,
+  buildStructuredContext,
+  buildUnresolvedDecisionInstruction,
   PreflightError,
 } from "../../src/prompt-engine.js";
 import { LIFECYCLE_STAGES } from "../../src/catalog/index.js";
-import { createInitialState } from "../../src/state.js";
+import {
+  createInitialState,
+  setDraftValue,
+  setEvidenceMode,
+  setField,
+  setStage,
+} from "../../src/state.js";
 
 function validPlanningState(overrides = {}) {
+  const initial = createInitialState();
+  const fields = {
+    ...COMPLETE_STAGE_FIELDS,
+    ...overrides.fields,
+  };
   return {
-    ...createInitialState(),
-    fields: {
-      topic: "Severe postpartum haemorrhage",
-      population: "Women giving birth in Thai referral hospitals",
-      researchQuestion: "Which modifiable factors predict severe postpartum haemorrhage?",
-      setting: "Thai university hospitals",
-    },
+    ...initial,
     ...overrides,
+    fields,
+    fieldCustomValues: {
+      ...initial.fieldCustomValues,
+      ...overrides.fieldCustomValues,
+    },
+    drafts: {
+      ...Object.fromEntries(Object.entries(initial.drafts).map(([draftId, draft]) => [draftId, {
+        ...draft,
+        suggested: fields[draftId] ?? "",
+        value: fields[draftId] ?? "",
+      }])),
+      ...overrides.drafts,
+    },
   };
 }
 
@@ -26,13 +46,37 @@ const COMPLETE_STAGE_FIELDS = {
   population: "Women giving birth in Thai referral hospitals",
   researchQuestion: "Which modifiable factors predict severe postpartum haemorrhage?",
   primaryOutcome: "Severe postpartum haemorrhage",
-  informationSources: "MEDLINE/PubMed and Embase",
+  questionType: "prognosis",
+  informationSources: ["medline", "embase"],
+  dateCoverage: "last-10-years",
+  evidenceTypes: ["observational-studies"],
+  searchConcepts: "postpartum haemorrhage; risk factors",
   searchStrategy: "MeSH and keywords",
   evidenceSummary: "Two cohort studies",
-  synthesisMethod: "Narrative synthesis",
+  evidencePattern: "limited",
+  synthesisMethod: "narrative",
+  evidenceCertainty: "low",
+  mainLimitations: ["risk-of-bias"],
+  gapType: "population",
+  gapEvidenceSupport: "not-yet-verified",
+  gapContext: "Thai referral hospitals",
+  gapPriority: "high",
   researchGaps: "Prospective evidence is limited",
+  hypothesisApproach: "directional",
+  interventionOrExposure: "Earlier recognition",
+  hypothesisOutcome: "Severe postpartum haemorrhage",
+  expectedDirection: "decrease",
   hypotheses: "Earlier recognition improves outcomes",
+  dataSourceRecruitment: "prospective-recruitment",
+  samplingApproach: "consecutive",
+  analysisFamily: "regression",
+  feasibilityPeriod: "13-24-months",
   methodologyOutline: "Prospective cohort study",
+  proposalType: "institutional-protocol",
+  targetAudience: "institutional-review",
+  requiredSections: ["background", "objectives", "methods", "analysis", "ethics-governance"],
+  proposalTimeline: "24-months",
+  proposalOutline: "Institutional protocol outline",
   resourcesTimeline: "12 months",
 };
 
@@ -100,7 +144,7 @@ describe("prompt contract", () => {
     const literature = buildPrompt(validPlanningState({
       stageId: "literature-review",
       evidenceMode: "web-research",
-      fields: { ...validPlanningState().fields, informationSources: "MEDLINE/PubMed", searchStrategy: "MeSH and keywords" },
+      fields: { informationSources: ["medline", "embase"], searchStrategy: "MeSH and keywords" },
       targetOutput: "literature-review-strategy",
     }));
     expect(literature).toContain("Plan and conduct a reproducible, critical review of relevant literature.");
@@ -116,7 +160,7 @@ describe("prompt contract", () => {
       stageId: "synthesize-information",
       evidenceMode: "uploaded",
       deidentificationConfirmed: true,
-      fields: { ...validPlanningState().fields, evidenceSummary: "Two cohort studies", synthesisMethod: "Narrative synthesis" },
+      fields: { evidenceSummary: "Two cohort studies", synthesisMethod: "narrative" },
       sources: [{ id: "S1", filename: "evidence.pdf", status: "ready", included: true, text: "Source-supported finding", warnings: [] }],
     }));
     expect(synthesis).toContain("source-grounded synthesis");
@@ -247,6 +291,62 @@ describe("prompt contract", () => {
     expect(planning).toContain("does not permit literature claims or citations");
   });
 
+  it("blocks prompt generation for a stale option populated in another stage", () => {
+    const state = validPlanningState({
+      stageId: "synthesize-information",
+      evidenceMode: "planning",
+      fields: { informationSources: ["uploaded-source-set"] },
+    });
+
+    let error;
+    try {
+      buildPrompt(state);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(PreflightError);
+    expect(error.issues).toContainEqual(expect.objectContaining({
+      code: "stale-field-option",
+      fieldId: "informationSources",
+    }));
+  });
+
+  it("removes Uploaded-only draft instructions before building a Planning prompt", () => {
+    let state = { ...createInitialState(), interfaceLocale: "en", evidenceMode: "uploaded", stageId: "literature-review" };
+    state = setField(state, "informationSources", ["uploaded-source-set"]);
+    state = setField(state, "dateCoverage", "last-10-years");
+    state = setField(state, "evidenceTypes", ["observational-studies"]);
+    state = setField(state, "searchConcepts", "postpartum haemorrhage");
+    state = setStage(state, "synthesize-information");
+    state = setField(state, "evidencePattern", "limited");
+    state = setField(state, "synthesisMethod", "narrative");
+    state = setField(state, "evidenceCertainty", "low");
+    state = setField(state, "mainLimitations", ["risk-of-bias"]);
+
+    const pending = setEvidenceMode(state, "planning");
+    state = setEvidenceMode(state, "planning", true, pending.analysis).state;
+    const prompt = buildPrompt(state);
+
+    expect(prompt).toContain("Planning mode does not permit literature claims or citations");
+    expect(prompt).not.toContain("Uploaded source set");
+    expect(prompt).not.toContain("Use Uploaded source set");
+  });
+
+  it("blocks prompt generation when the current required draft is whitespace", () => {
+    const state = setDraftValue(validPlanningState(), "researchQuestion", " \t ");
+
+    expect(() => buildPrompt(state)).toThrow(PreflightError);
+    try {
+      buildPrompt(state);
+    } catch (error) {
+      expect(error.issues).toContainEqual(expect.objectContaining({
+        code: "missing-derived-draft",
+        fieldId: "researchQuestion",
+      }));
+    }
+  });
+
   it("requires named databases, official sources, stable links, and a search date for web research", () => {
     const prompt = buildPrompt(validPlanningState({ evidenceMode: "web-research" }));
 
@@ -280,6 +380,149 @@ describe("prompt contract", () => {
     expect(prompt).toContain("Citation style: AMA");
   });
 
+  it("serializes inherited, structured, customized, and hidden Advanced context as display text", () => {
+    const state = validPlanningState({
+      stageId: "literature-review",
+      outputLanguage: "bilingual",
+      fields: {
+        informationSources: ["other", "embase", "medline"],
+        booleanQuery: "(haemorrhage OR bleeding) AND pregnancy",
+      },
+      fieldCustomValues: { informationSources: "ThaiJO" },
+      drafts: {
+        searchStrategy: {
+          suggested: "Suggested search strategy",
+          value: "Customized librarian-reviewed search strategy",
+          customized: true,
+          error: "",
+        },
+      },
+      advancedOpenByStage: { ...createInitialState().advancedOpenByStage, "literature-review": false },
+    });
+
+    const prompt = buildPrompt(state);
+
+    expect(prompt).toContain("Inherited context");
+    expect(prompt).toContain("Structured decisions");
+    expect(prompt).toContain("Information sources: MEDLINE/PubMed / MEDLINE/PubMed; Embase / Embase; อื่นๆ / Other: ThaiJO");
+    expect(prompt).not.toContain("informationSources: medline,embase,other");
+    expect(prompt).toContain("Derived stage product (user-customized)");
+    expect(prompt).toContain("Customized librarian-reviewed search strategy");
+    expect(prompt).toContain("Advanced details");
+    expect(prompt).toContain("(haemorrhage OR bleeding) AND pregnancy");
+  });
+
+  it.each([
+    ["thai", "แหล่งข้อมูล: MEDLINE/PubMed; Embase; อื่นๆ: ThaiJO"],
+    ["english", "Information sources: MEDLINE/PubMed; Embase; Other: ThaiJO"],
+    ["bilingual", "Information sources: MEDLINE/PubMed / MEDLINE/PubMed; Embase / Embase; อื่นๆ / Other: ThaiJO"],
+  ])("orders multi-select labels deterministically in %s output", (outputLanguage, expected) => {
+    const context = buildStructuredContext(validPlanningState({
+      stageId: "literature-review",
+      outputLanguage,
+      fields: { informationSources: ["other", "embase", "medline"] },
+      fieldCustomValues: { informationSources: "ThaiJO" },
+    }));
+
+    expect(context).toContain(expected);
+  });
+
+  it.each([
+    [
+      "thai",
+      "หัวข้อวิจัย: anti-HBs and eGFR",
+      "ประเภทคำถามวิจัย: การพยากรณ์โรค",
+      "คำถามวิจัย: Does anti-HBs predict eGFR decline?",
+    ],
+    [
+      "english",
+      "Research topic: anti-HBs and eGFR",
+      "Question type: Prognosis",
+      "Research question: Does anti-HBs predict eGFR decline?",
+    ],
+    [
+      "bilingual",
+      "หัวข้อวิจัย / Research topic: anti-HBs and eGFR",
+      "ประเภทคำถามวิจัย / Question type: การพยากรณ์โรค / Prognosis",
+      "คำถามวิจัย / Research question: Does anti-HBs predict eGFR decline?",
+    ],
+  ])("localizes normal choices and preserves free text verbatim in %s output", (
+    outputLanguage,
+    expectedTopic,
+    expectedQuestionType,
+    expectedResearchQuestion,
+  ) => {
+    const questionContext = buildStructuredContext(validPlanningState({
+      outputLanguage,
+      fields: {
+        topic: "anti-HBs and eGFR",
+        questionType: "prognosis",
+      },
+    }));
+    const inheritedContext = buildStructuredContext(validPlanningState({
+      stageId: "literature-review",
+      outputLanguage,
+      fields: { researchQuestion: "Does anti-HBs predict eGFR decline?" },
+    }));
+
+    expect(questionContext).toContain(expectedTopic);
+    expect(questionContext).toContain(expectedQuestionType);
+    expect(inheritedContext).toContain(expectedResearchQuestion);
+    expect(`${questionContext}\n${inheritedContext}`).not.toMatch(/fields\.|options\./i);
+  });
+
+  it("isolates Not sure decisions and requests bounded human decision support", () => {
+    const state = validPlanningState({
+      stageId: "synthesize-information",
+      outputLanguage: "english",
+      evidenceMode: "planning",
+      fields: {
+        evidencePattern: "consistent",
+        synthesisMethod: "not-sure",
+      },
+    });
+
+    const prompt = buildPrompt(state);
+    const context = buildStructuredContext(state);
+
+    expect(context).toContain("User-supplied provisional assessment: Consistent");
+    expect(context).not.toContain("Synthesis method: Not sure");
+    expect(prompt).toContain("Unresolved decision: Synthesis method");
+    expect(prompt).toContain("Provide 2-3 applicable options with rationale, limitations, and information needed for a human decision");
+    expect(prompt).toContain("Verify this provisional assessment only with evidence permitted by Planning mode");
+    expect(prompt).not.toContain("Browser-verified finding: Consistent");
+    expect(prompt).not.toContain("Evidence shows a consistent pattern");
+  });
+
+  it("does not convert evidence, privacy, or approval blockers into Not sure instructions", () => {
+    const state = validPlanningState({
+      stageId: "write-proposal",
+      fields: {
+        registration: "not-sure",
+        detailedGovernance: "not-sure",
+      },
+    });
+
+    expect(buildUnresolvedDecisionInstruction(state)).toBe("No unresolved structured decisions.");
+  });
+
+  it.each([
+    ["novice", "Explain methodological terms briefly and surface the next human decision."],
+    ["intermediate", "Use concise methodological rationale and identify consequential trade-offs."],
+    ["advanced", "Use specialist terminology concisely and foreground assumptions, estimands, and sensitivity decisions."],
+  ])("changes explanation depth, not Advanced serialization, for %s experience", (experienceLevel, guidance) => {
+    const prompt = buildPrompt(validPlanningState({
+      experienceLevel,
+      fields: { problemStatement: "Preventable maternal morbidity" },
+      advancedOpenByStage: { ...createInitialState().advancedOpenByStage, "define-question": false },
+    }));
+
+    expect(prompt).toContain(guidance);
+    expect(prompt).toContain("Advanced details");
+    expect(prompt).toContain("Preventable maternal morbidity");
+    expect(prompt).toContain("Address confounding control and residual confounding");
+  });
+
   it("applies governance sources by setting, design, stage, and research family", () => {
     const proposalFields = {
       ...validPlanningState().fields,
@@ -310,6 +553,10 @@ describe("prompt contract", () => {
         modelInputs: "Chest radiographs",
         validationDataset: "External dataset",
         performanceMeasures: "Calibration and discrimination",
+        questionType: "external-validation",
+        synthesisMethod: "ai-narrative",
+        dataSourceRecruitment: "multicentre-external-data",
+        analysisFamily: "external-validation",
         problemStatement: "External validity is uncertain",
         methodologyOutline: "External validation study",
         resourcesTimeline: "12 months",
@@ -361,8 +608,10 @@ describe("prompt contract", () => {
         reviewType: "Systematic review",
         reviewQuestion: "What is the effect of simulation-based education?",
         eligibilityCriteria: "Comparative studies",
-        informationSources: "MEDLINE and ERIC",
-        synthesisMethod: "Random-effects meta-analysis",
+        informationSources: ["medline", "eric"],
+        synthesisMethod: "pairwise-meta-analysis",
+        dataSourceRecruitment: "published-literature",
+        analysisFamily: "random-effects-meta-analysis",
       },
     }));
     const finalSection = prompt.slice(prompt.indexOf("12. LIMITATIONS AND HUMAN REVIEW"));
@@ -413,6 +662,7 @@ describe("prompt contract", () => {
   it("selects review-specific methodological checks without observational claims", () => {
     const prompt = buildPrompt(validPlanningState({
       researchTypeId: "evidence-review",
+      studyDesignId: "systematic-review",
       fields: {
         topic: "Postpartum haemorrhage",
         population: "Women giving birth in Thai referral hospitals",
@@ -420,8 +670,10 @@ describe("prompt contract", () => {
         reviewType: "Systematic review",
         reviewQuestion: "Which interventions reduce severe postpartum haemorrhage?",
         eligibilityCriteria: "Randomized trials",
-        informationSources: "MEDLINE and Embase",
-        synthesisMethod: "Random-effects meta-analysis",
+        informationSources: ["medline", "embase"],
+        synthesisMethod: "pairwise-meta-analysis",
+        dataSourceRecruitment: "published-literature",
+        analysisFamily: "random-effects-meta-analysis",
       },
     }));
 

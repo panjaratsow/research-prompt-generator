@@ -1,6 +1,26 @@
 export { RESEARCH_TYPES, RESEARCH_TYPE_IDS } from "./research-types.js";
 export { LIFECYCLE_STAGES, STAGE_IDS, STAGE_TARGET_OUTPUTS } from "./lifecycle-stages.js";
 export { STANDARD_IDS, STANDARDS, STANDARDS_REVIEWED_ON } from "./standards.js";
+export {
+  BASE_OPTION_SETS,
+  DESIGN_ANALYSIS_FAMILIES,
+  NOT_SURE_OPTION_ID,
+  OTHER_OPTION_ID,
+  TYPE_OPTION_SETS,
+  resolveOptionIds,
+} from "./adaptive-options.js";
+export {
+  DERIVED_FIELD_BY_STAGE,
+  FIELD_DEFINITIONS,
+  INHERITED_FIELDS_BY_STAGE,
+  STAGE_FORM_FIELDS,
+  getCompatibleFieldIds,
+  getFieldDefinition,
+  getInheritedContextFields,
+  getStageFieldDefinitions,
+  isFieldOptionCompatible,
+  resolveFieldOptions,
+} from "./adaptive-fields.js";
 
 import { LIFECYCLE_STAGES } from "./lifecycle-stages.js";
 import { RESEARCH_TYPES } from "./research-types.js";
